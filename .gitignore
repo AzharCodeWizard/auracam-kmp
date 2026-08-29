@@ -1,0 +1,15 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+*/build
+*.apk
+*.aab
+*.png
+*.jpg
+*.mp4
+captured_sample.jpg
+auracam_*.png
+.kotlin
