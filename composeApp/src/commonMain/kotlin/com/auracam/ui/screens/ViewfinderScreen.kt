@@ -1,6 +1,8 @@
 package com.auracam.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -12,13 +14,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.auracam.camera.domain.*
 import com.auracam.ui.components.*
+import com.auracam.ui.theme.*
 import com.auracam.ui.util.PlatformSoundAndHaptics
 import com.auracam.ui.util.rememberPlatformShare
 import kotlinx.coroutines.launch
@@ -58,20 +59,37 @@ fun ViewfinderScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(PixelPitchBlack)
             .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Viewfinder Viewport Container
+            // 1. Pinned Top Safe Header with Floating Top Bar
+            FloatingTopBar(
+                mode = cameraMode,
+                flashMode = flashMode,
+                captureFormat = captureFormat,
+                colorProfile = colorProfile,
+                ultraHdr = ultraHdrEnabled,
+                timerDuration = timerDuration,
+                onOpenQuickSettings = {
+                    showQuickSettings = true
+                    soundAndHaptics.vibrateSnap()
+                },
+                onOpenSettings = onOpenSettings,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, bottom = 4.dp)
+            )
+
+            // 2. Centered Viewfinder Viewport Frame
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                // Aspect Ratio Viewfinder Frame
                 val ratioModifier = when (aspectRatio) {
                     AspectRatio.RATIO_4_3 -> Modifier.aspectRatio(3f / 4f)
                     AspectRatio.RATIO_16_9 -> Modifier.aspectRatio(9f / 16f)
@@ -82,8 +100,8 @@ fun ViewfinderScreen(
                 BoxWithConstraints(
                     modifier = ratioModifier
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color.Black)
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(PixelDarkBackground)
                         .pointerInput(Unit) {
                             detectTapGestures { offset ->
                                 val normX = offset.x / size.width
@@ -93,13 +111,13 @@ fun ViewfinderScreen(
                             }
                         }
                 ) {
-                    // 1. Live Hardware Camera Viewfinder Stream
+                    // A. Live Hardware Camera Viewfinder Stream
                     CameraPreview(
                         engine = engine,
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // 2. Color Profile / LUT Live Tone Overlay
+                    // B. Color Profile / LUT Live Tone Overlay
                     when (colorProfile) {
                         ColorProfile.HIGH_CONTRAST_MONO -> {
                             Box(
@@ -132,55 +150,72 @@ fun ViewfinderScreen(
                         else -> {}
                     }
 
-                    // 3. Focus Bracket & Dual Exposure Sliders
+                    // C. Framing Grids
+                    FramingGridOverlay(
+                        gridType = gridType,
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // D. 3D Dual-Axis Leveler
+                    DualAxisLeveler(
+                        leveler = horizonLeveler,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+
+                    // E. Focus Bracket & Exposure Sliders
                     FocusBracketOverlay(
                         focusPoint = focusPoint,
                         proSettings = proSettings,
                         onProSettingsChange = { engine.updateProSettings(it) }
                     )
 
-                    // 4. Viewfinder Overlays (Leveler, Grid, HDR Badges, Quick Settings Pill)
-                    ViewfinderOverlay(
-                        mode = cameraMode,
-                        flashMode = flashMode,
-                        captureFormat = captureFormat,
-                        colorProfile = colorProfile,
-                        ultraHdr = ultraHdrEnabled,
-                        watermarkEnabled = watermarkEnabled,
-                        timerDuration = timerDuration,
-                        gridType = gridType,
-                        proSettings = proSettings,
-                        leveler = horizonLeveler,
-                        isRecording = isRecording,
-                        recordingDurationSeconds = recordingDurationSeconds,
-                        captureProgress = captureProgress,
-                        onOpenQuickSettings = {
-                            showQuickSettings = true
-                            soundAndHaptics.vibrateSnap()
-                        },
-                        onOpenSettings = onOpenSettings
+                    // F. Center Countdown Overlay
+                    CountdownOverlay(
+                        message = captureProgress.message,
+                        modifier = Modifier.align(Alignment.Center)
                     )
 
-                    // 5. Floating Zoom Selector Bar
-                    ZoomSelector(
-                        currentZoom = zoomRatio,
-                        onZoomSelected = {
-                            engine.setZoom(it)
-                            soundAndHaptics.vibrateSnap()
-                        },
+                    // G. Computational Progress Banner
+                    ComputationalCaptureBanner(
+                        captureProgress = captureProgress,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = 12.dp)
+                            .padding(bottom = 60.dp)
                     )
                 }
+
+                // Video Recording Active HUD (Floating in Viewport)
+                VideoRecordingHUD(
+                    isRecording = isRecording,
+                    recordingDurationSeconds = recordingDurationSeconds,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 12.dp)
+                )
             }
 
-            // Bottom Controls Area
+            // 3. Floating Zoom Selector Bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                ZoomSelector(
+                    currentZoom = zoomRatio,
+                    onZoomSelected = {
+                        engine.setZoom(it)
+                        soundAndHaptics.vibrateSnap()
+                    }
+                )
+            }
+
+            // 4. Pinned Bottom Controls Area
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black)
-                    .padding(top = 4.dp, bottom = 8.dp)
+                    .background(PixelPitchBlack)
+                    .padding(bottom = 8.dp)
             ) {
                 // Pro Controls Sheet (when in Pro mode)
                 AnimatedVisibility(
@@ -205,8 +240,8 @@ fun ViewfinderScreen(
                     }
                 )
 
-                // Shutter Row (Gallery Thumbnail, Shutter Button, Camera Flip)
-                ShutterRow(
+                // Shutter Control Row (Gallery Thumbnail, Shutter Button, Camera Flip)
+                ShutterControlRow(
                     mode = cameraMode,
                     isRecording = isRecording,
                     recordingDurationSeconds = recordingDurationSeconds,
@@ -239,7 +274,7 @@ fun ViewfinderScreen(
             }
         }
 
-        // Quick Settings Dropdown Sheet
+        // Quick Settings Dropdown Sheet (Pixel Glass Card)
         AnimatedVisibility(
             visible = showQuickSettings,
             enter = slideInVertically() + fadeIn(),

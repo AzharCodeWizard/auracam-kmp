@@ -1,6 +1,7 @@
 package com.auracam.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -21,7 +22,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.auracam.ui.theme.PixelYellowAccent
+import com.auracam.ui.components.pixelGlass
+import com.auracam.ui.theme.*
 
 @Composable
 fun SettingsScreen(
@@ -37,7 +39,8 @@ fun SettingsScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF121212))
+            .background(PixelPitchBlack)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         // App Bar
         Row(
@@ -51,21 +54,23 @@ fun SettingsScreen(
                 onClick = onBack,
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF222222))
+                    .pixelGlass(
+                        shape = CircleShape,
+                        backgroundColor = PixelSurfaceContainerHigh,
+                        borderColor = PixelGlassBorder
+                    )
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = Color.White
+                    tint = PixelTextWhite
                 )
             }
 
             Text(
                 text = "Camera Settings",
-                color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
+                style = AuraCamTheme.typography.titleLarge,
+                color = PixelTextWhite
             )
         }
 
@@ -128,12 +133,12 @@ fun SettingsScreen(
                 SettingsInfoItem(
                     icon = Icons.Default.Info,
                     title = "Version",
-                    value = "1.0.0 (Google Play Store Ready)"
+                    value = "1.0.0 (Pixel M3 Expressive Studio)"
                 )
                 SettingsInfoItem(
                     icon = Icons.Default.Code,
                     title = "Engine",
-                    value = "Kotlin Multiplatform + Camera2/X + AVFoundation"
+                    value = "Kotlin Multiplatform + CameraX + AVFoundation"
                 )
             }
 
@@ -153,21 +158,22 @@ private fun SettingsGroup(
     ) {
         Text(
             text = title,
+            style = AuraCamTheme.cameraTypography.pillLabel,
             color = PixelYellowAccent,
-            fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 4.dp)
         )
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                content = content
-            )
-        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pixelGlass(
+                    shape = RoundedCornerShape(20.dp),
+                    backgroundColor = PixelSurfaceContainer,
+                    borderColor = PixelGlassBorderSubtle
+                )
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            content = content
+        )
     }
 }
 
@@ -189,19 +195,27 @@ private fun SettingsSwitchItem(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color(0xFFB0B0B0),
+            tint = PixelTextSecondary,
             modifier = Modifier.size(22.dp)
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            Text(text = subtitle, color = Color.Gray, fontSize = 11.sp)
+            Text(
+                text = title,
+                style = AuraCamTheme.typography.bodyLarge,
+                color = PixelTextWhite
+            )
+            Text(
+                text = subtitle,
+                style = AuraCamTheme.typography.bodySmall,
+                color = PixelTextMuted
+            )
         }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = PixelYellowAccent,
-                checkedTrackColor = Color(0x66FFDB58)
+                checkedTrackColor = PixelYellowContainer
             )
         )
     }
@@ -223,12 +237,20 @@ private fun SettingsInfoItem(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color(0xFFB0B0B0),
+            tint = PixelTextSecondary,
             modifier = Modifier.size(22.dp)
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            Text(text = value, color = Color.Gray, fontSize = 11.sp)
+            Text(
+                text = title,
+                style = AuraCamTheme.typography.bodyLarge,
+                color = PixelTextWhite
+            )
+            Text(
+                text = value,
+                style = AuraCamTheme.typography.bodySmall,
+                color = PixelTextMuted
+            )
         }
     }
 }

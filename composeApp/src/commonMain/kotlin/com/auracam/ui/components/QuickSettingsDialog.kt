@@ -1,12 +1,14 @@
 package com.auracam.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,7 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auracam.camera.domain.*
-import com.auracam.ui.theme.PixelYellowAccent
+import com.auracam.ui.theme.*
 
 @Composable
 fun QuickSettingsDialog(
@@ -45,12 +47,15 @@ fun QuickSettingsDialog(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xF0202020))
+            .padding(16.dp)
+            .pixelGlass(
+                shape = RoundedCornerShape(28.dp),
+                backgroundColor = PixelGlassScrimHeavy,
+                borderColor = PixelGlassBorder
+            )
     ) {
         Column(
             modifier = Modifier
@@ -67,18 +72,21 @@ fun QuickSettingsDialog(
             ) {
                 Text(
                     text = "Quick Controls",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                    style = AuraCamTheme.typography.titleLarge,
+                    color = PixelTextWhite
                 )
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(PixelSurfaceContainerHigh)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        tint = Color.White
+                        tint = PixelTextWhite,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -177,7 +185,7 @@ fun QuickSettingsDialog(
                 }
             }
 
-            HorizontalDivider(color = Color(0xFF333333))
+            HorizontalDivider(color = PixelGlassBorderSubtle)
 
             // Toggles (Ultra HDR, Watermark)
             Row(
@@ -186,15 +194,23 @@ fun QuickSettingsDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("Ultra HDR Processing", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("Retains 10-bit highlight luminance", color = Color.Gray, fontSize = 12.sp)
+                    Text(
+                        text = "Ultra HDR Processing",
+                        style = AuraCamTheme.typography.bodyLarge,
+                        color = PixelTextWhite
+                    )
+                    Text(
+                        text = "Retains 10-bit highlight luminance",
+                        style = AuraCamTheme.typography.bodySmall,
+                        color = PixelTextMuted
+                    )
                 }
                 Switch(
                     checked = ultraHdr,
                     onCheckedChange = onUltraHdrToggle,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = PixelYellowAccent,
-                        checkedTrackColor = Color(0x66FFDB58)
+                        checkedTrackColor = PixelYellowContainer
                     )
                 )
             }
@@ -205,15 +221,23 @@ fun QuickSettingsDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("Pixel Device Watermark", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("Add EXIF specs badge to photos", color = Color.Gray, fontSize = 12.sp)
+                    Text(
+                        text = "Pixel Device Watermark",
+                        style = AuraCamTheme.typography.bodyLarge,
+                        color = PixelTextWhite
+                    )
+                    Text(
+                        text = "Add EXIF specs badge to photos",
+                        style = AuraCamTheme.typography.bodySmall,
+                        color = PixelTextMuted
+                    )
                 }
                 Switch(
                     checked = watermarkEnabled,
                     onCheckedChange = onWatermarkToggle,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = PixelYellowAccent,
-                        checkedTrackColor = Color(0x66FFDB58)
+                        checkedTrackColor = PixelYellowContainer
                     )
                 )
             }
@@ -225,9 +249,8 @@ fun QuickSettingsDialog(
 private fun SectionLabel(title: String) {
     Text(
         text = title,
-        color = Color(0xFFB0B0B0),
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Bold
+        style = AuraCamTheme.cameraTypography.badgeSmall,
+        color = PixelTextSecondary
     )
 }
 
@@ -241,7 +264,12 @@ private fun PillButton(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(if (isSelected) PixelYellowAccent else Color(0xFF333333))
+            .background(if (isSelected) PixelYellowAccent else PixelSurfaceContainerHigh)
+            .border(
+                1.dp,
+                if (isSelected) PixelYellowAccent else PixelGlassBorderSubtle,
+                RoundedCornerShape(16.dp)
+            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -251,9 +279,8 @@ private fun PillButton(
     ) {
         Text(
             text = text,
-            color = if (isSelected) Color.Black else Color.White,
-            fontSize = 12.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+            color = if (isSelected) PixelPitchBlack else PixelTextWhite,
+            style = if (isSelected) AuraCamTheme.cameraTypography.pillLabelActive else AuraCamTheme.cameraTypography.pillLabel
         )
     }
 }

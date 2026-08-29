@@ -1,45 +1,105 @@
 package com.auracam.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.*
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
 
-val PixelDarkBackground = Color(0xFF0E0E0E)
-val PixelSurfaceDark = Color(0xFF1E1E1E)
-val PixelSurfaceVariant = Color(0xFF2D2D2D)
-val PixelYellowAccent = Color(0xFFFFDB58) // Pixel 8/9 Pro warm golden yellow
-val PixelGoogleBlue = Color(0xFF8AB4F8)
-val PixelLevelerGreen = Color(0xFF81C995)
-val PixelFocusPeakingGreen = Color(0xFF00FF66)
-val PixelRecordRed = Color(0xFFEA4335)
-val PixelTextWhite = Color(0xFFF1F1F1)
-val PixelTextMuted = Color(0xFF9E9E9E)
+// ====================================================
+// Authentic Google Pixel M3 Expressive Dark Color Scheme
+// ====================================================
 
-private val DarkColorScheme = darkColorScheme(
+val PixelDarkColorScheme: ColorScheme = darkColorScheme(
     primary = PixelYellowAccent,
-    onPrimary = Color.Black,
-    primaryContainer = Color(0xFF3B3000),
+    onPrimary = PixelTextOnYellow,
+    primaryContainer = PixelYellowContainer,
     onPrimaryContainer = PixelYellowAccent,
+    inversePrimary = Color(0xFF6C5E00),
+
     secondary = PixelGoogleBlue,
-    onSecondary = Color.Black,
-    background = PixelDarkBackground,
-    onBackground = PixelTextWhite,
-    surface = PixelSurfaceDark,
-    onSurface = PixelTextWhite,
+    onSecondary = Color(0xFF003062),
+    secondaryContainer = PixelBlueContainer,
+    onSecondaryContainer = PixelGoogleBlue,
+
+    tertiary = PixelLevelerGreen,
+    onTertiary = Color(0xFF003919),
+    tertiaryContainer = PixelGreenContainer,
+    onTertiaryContainer = PixelLevelerGreen,
+
+    background = PixelPitchBlack,
+    onBackground = PixelTextPrimary,
+
+    surface = PixelDarkSurface,
+    onSurface = PixelTextPrimary,
     surfaceVariant = PixelSurfaceVariant,
-    onSurfaceVariant = PixelTextMuted,
+    onSurfaceVariant = PixelTextSecondary,
+
+    surfaceContainerLowest = PixelSurfaceContainerLowest,
+    surfaceContainerLow = PixelSurfaceContainerLow,
+    surfaceContainer = PixelSurfaceContainer,
+    surfaceContainerHigh = PixelSurfaceContainerHigh,
+    surfaceContainerHighest = PixelSurfaceContainerHighest,
+    surfaceDim = PixelSurfaceDim,
+    surfaceBright = PixelSurfaceBright,
+
+    outline = Color(0xFF8E9099),
+    outlineVariant = PixelGlassBorder,
+    scrim = PixelPitchBlack,
+
     error = PixelRecordRed,
-    onError = Color.White
+    onError = Color.White,
+    errorContainer = PixelRedContainer,
+    onErrorContainer = PixelRecordRed
 )
 
 @Composable
 fun AuraCamTheme(
     content: @Composable () -> Unit
 ) {
-    MaterialTheme(
-        colorScheme = DarkColorScheme,
-        typography = Typography(),
-        content = content
-    )
+    val cameraTypography = CameraTypography()
+    val cameraShapes = CameraShapes()
+
+    CompositionLocalProvider(
+        LocalCameraTypography provides cameraTypography,
+        LocalCameraShapes provides cameraShapes
+    ) {
+        MaterialTheme(
+            colorScheme = PixelDarkColorScheme,
+            typography = AuraCamTypography,
+            shapes = AuraCamShapes,
+            content = content
+        )
+    }
+}
+
+object AuraCamTheme {
+    val colors: ColorScheme
+        @Composable
+        @ReadOnlyComposable
+        get() = MaterialTheme.colorScheme
+
+    val typography: Typography
+        @Composable
+        @ReadOnlyComposable
+        get() = MaterialTheme.typography
+
+    val cameraTypography: CameraTypography
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalCameraTypography.current
+
+    val shapes: Shapes
+        @Composable
+        @ReadOnlyComposable
+        get() = MaterialTheme.shapes
+
+    val cameraShapes: CameraShapes
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalCameraShapes.current
 }

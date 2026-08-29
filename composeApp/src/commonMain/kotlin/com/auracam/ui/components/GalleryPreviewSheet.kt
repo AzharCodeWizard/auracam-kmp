@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auracam.camera.domain.CapturedMedia
 import com.auracam.processing.ComputationalPipeline
-import com.auracam.ui.theme.PixelYellowAccent
+import com.auracam.ui.theme.*
 
 @Composable
 fun GalleryPreviewSheet(
@@ -36,7 +36,8 @@ fun GalleryPreviewSheet(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(PixelPitchBlack)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         // Top Action Bar
         Row(
@@ -50,27 +51,29 @@ fun GalleryPreviewSheet(
                 onClick = onClose,
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0x66333333))
+                    .pixelGlass(
+                        shape = CircleShape,
+                        backgroundColor = PixelSurfaceContainerHigh,
+                        borderColor = PixelGlassBorder
+                    )
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Close",
-                    tint = Color.White
+                    tint = PixelTextWhite
                 )
             }
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = media.fileName,
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
+                    style = AuraCamTheme.typography.titleMedium,
+                    color = PixelTextWhite
                 )
                 Text(
                     text = "${media.mode.displayName} • ${media.format.label}",
-                    color = PixelYellowAccent,
-                    fontSize = 12.sp
+                    style = AuraCamTheme.cameraTypography.hudMetricHighlight,
+                    color = PixelYellowAccent
                 )
             }
 
@@ -79,27 +82,30 @@ fun GalleryPreviewSheet(
                     onClick = { onShare?.invoke(media) },
                     modifier = Modifier
                         .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color(0x66333333))
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = "Share",
-                        tint = Color.White
-                    )
-                }
+                        .pixelGlass(
+                            shape = CircleShape,
+                            backgroundColor = PixelSurfaceContainerHigh,
+                            borderColor = PixelGlassBorder
+                        )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = "Share",
+                    tint = PixelTextWhite
+                )
+            }
 
                 IconButton(
                     onClick = { showExifInfo = !showExifInfo },
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(if (showExifInfo) PixelYellowAccent else Color(0x66333333))
+                        .background(if (showExifInfo) PixelYellowAccent else PixelSurfaceContainerHigh)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Info,
                         contentDescription = "EXIF Info",
-                        tint = if (showExifInfo) Color.Black else Color.White
+                        tint = if (showExifInfo) PixelPitchBlack else PixelTextWhite
                     )
                 }
             }
@@ -111,10 +117,10 @@ fun GalleryPreviewSheet(
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(28.dp))
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(Color(0xFF2C3E50), Color(0xFF000000))
+                        colors = listOf(Color(0xFF2C3E50), Color(0xFF0A0A0A))
                     )
                 ),
             contentAlignment = Alignment.Center
@@ -133,14 +139,13 @@ fun GalleryPreviewSheet(
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = "${media.mode.displayName} Capture",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                    style = AuraCamTheme.typography.headlineMedium,
+                    color = PixelTextWhite
                 )
                 Text(
                     text = media.exif.resolution,
-                    color = Color.Gray,
-                    fontSize = 13.sp
+                    style = AuraCamTheme.typography.bodyMedium,
+                    color = PixelTextSecondary
                 )
             }
 
@@ -150,15 +155,17 @@ fun GalleryPreviewSheet(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 16.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xCC000000))
+                        .pixelGlass(
+                            shape = CircleShape,
+                            backgroundColor = PixelGlassScrimHeavy,
+                            borderColor = PixelGlassBorder
+                        )
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Text(
                         text = ComputationalPipeline.formatPixelWatermark(media.exif),
-                        color = Color(0xFFF1F1F1),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
+                        style = AuraCamTheme.cameraTypography.hudMetric,
+                        color = PixelTextPrimary
                     )
                 }
             }
@@ -166,12 +173,15 @@ fun GalleryPreviewSheet(
 
         // EXIF Metadata Sheet
         if (showExifInfo) {
-            Card(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+                    .padding(16.dp)
+                    .pixelGlass(
+                        shape = RoundedCornerShape(24.dp),
+                        backgroundColor = PixelGlassScrimHeavy,
+                        borderColor = PixelGlassBorder
+                    )
             ) {
                 Column(
                     modifier = Modifier
@@ -182,8 +192,8 @@ fun GalleryPreviewSheet(
                 ) {
                     Text(
                         text = "EXIF & Computational Details",
+                        style = AuraCamTheme.cameraTypography.pillLabel,
                         color = PixelYellowAccent,
-                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
 
@@ -209,7 +219,7 @@ private fun ExifRow(label: String, value: String) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(text = label, color = Color.Gray, fontSize = 12.sp)
-        Text(text = value, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Text(text = label, style = AuraCamTheme.typography.bodySmall, color = PixelTextSecondary)
+        Text(text = value, style = AuraCamTheme.cameraTypography.hudMetric, color = PixelTextWhite)
     }
 }

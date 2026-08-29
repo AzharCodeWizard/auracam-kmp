@@ -20,12 +20,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.auracam.camera.domain.FocusPoint
 import com.auracam.camera.domain.ProSettings
-import com.auracam.ui.theme.PixelYellowAccent
+import com.auracam.ui.theme.*
 
 @Composable
 fun FocusBracketOverlay(
@@ -38,8 +36,8 @@ fun FocusBracketOverlay(
 
     val infiniteTransition = rememberInfiniteTransition()
     val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.9f,
-        targetValue = 0.4f,
+        initialValue = 0.95f,
+        targetValue = 0.45f,
         animationSpec = infiniteRepeatable(
             animation = tween(700, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
@@ -85,20 +83,23 @@ fun FocusBracketOverlay(
             }
         }
 
-        // Dual Exposure Sliders Box (Brightness + Shadows)
+        // Dual Exposure Sliders Box (Sun EV + Moon Shadows)
         Row(
             modifier = Modifier
                 .offset(
-                    x = (focusPxX + 44.dp).coerceIn(0.dp, maxWidth - 88.dp),
-                    y = (focusPxY - 60.dp).coerceIn(0.dp, maxHeight - 140.dp)
+                    x = (focusPxX + 44.dp).coerceIn(0.dp, maxWidth - 92.dp),
+                    y = (focusPxY - 60.dp).coerceIn(0.dp, maxHeight - 150.dp)
                 )
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xCC181818))
+                .pixelGlass(
+                    shape = RoundedCornerShape(20.dp),
+                    backgroundColor = PixelGlassScrimHeavy,
+                    borderColor = PixelGlassBorder
+                )
                 .padding(horizontal = 8.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. Brightness / EV Slider
+            // 1. Sun EV Brightness Slider
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -123,7 +124,7 @@ fun FocusBracketOverlay(
                 Box(
                     modifier = Modifier
                         .width(4.dp)
-                        .height(70.dp)
+                        .height(72.dp)
                         .clip(RoundedCornerShape(2.dp))
                         .background(Color(0xFF444444)),
                     contentAlignment = Alignment.Center
@@ -139,13 +140,12 @@ fun FocusBracketOverlay(
 
                 Text(
                     text = "${if (proSettings.evBias >= 0) "+" else ""}${proSettings.evBias}",
-                    color = PixelYellowAccent,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
+                    style = AuraCamTheme.cameraTypography.hudMetricHighlight,
+                    color = PixelYellowAccent
                 )
             }
 
-            // 2. Shadows Tone Slider
+            // 2. Moon Shadows Tone Slider
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -163,14 +163,14 @@ fun FocusBracketOverlay(
                 Icon(
                     imageVector = Icons.Default.Contrast,
                     contentDescription = "Shadows",
-                    tint = Color.White,
+                    tint = PixelTextWhite,
                     modifier = Modifier.size(16.dp)
                 )
 
                 Box(
                     modifier = Modifier
                         .width(4.dp)
-                        .height(70.dp)
+                        .height(72.dp)
                         .clip(RoundedCornerShape(2.dp))
                         .background(Color(0xFF444444)),
                     contentAlignment = Alignment.Center
@@ -180,15 +180,14 @@ fun FocusBracketOverlay(
                             .offset(y = (-proSettings.shadowBias * 30).dp.coerceIn(-32.dp, 32.dp))
                             .size(14.dp)
                             .clip(CircleShape)
-                            .background(Color.White)
+                            .background(PixelTextWhite)
                     )
                 }
 
                 Text(
                     text = "${if (proSettings.shadowBias >= 0) "+" else ""}${proSettings.shadowBias}",
-                    color = Color.White,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
+                    style = AuraCamTheme.cameraTypography.hudMetric,
+                    color = PixelTextWhite
                 )
             }
         }
