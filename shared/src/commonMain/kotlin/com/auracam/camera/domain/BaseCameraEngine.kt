@@ -58,6 +58,9 @@ abstract class BaseCameraEngine(
     protected val _proSettings = MutableStateFlow(ProSettings())
     override val proSettings: StateFlow<ProSettings> = _proSettings.asStateFlow()
 
+    protected val _hardwareQualityStatus = MutableStateFlow(HardwareQualityStatus())
+    override val hardwareQualityStatus: StateFlow<HardwareQualityStatus> = _hardwareQualityStatus.asStateFlow()
+
     protected val _manualControlsSupported = MutableStateFlow(true)
     override val manualControlsSupported: StateFlow<Boolean> = _manualControlsSupported.asStateFlow()
 

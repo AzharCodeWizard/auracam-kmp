@@ -17,6 +17,7 @@ import android.database.Cursor
 import android.util.Log
 import android.view.OrientationEventListener
 import android.view.Surface
+import android.util.Size
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
@@ -25,6 +26,7 @@ import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.*
 import androidx.camera.video.VideoCapture
@@ -334,8 +336,21 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
 
             val rotation = pView.display?.rotation ?: Surface.ROTATION_0
 
+            val targetResSize = when (_photoResolution.value) {
+                PhotoResolution.HIGH_50MP -> Size(8160, 6120)
+                PhotoResolution.STANDARD_12MP -> Size(4080, 3060)
+                PhotoResolution.SAVER_8MP -> Size(3264, 2448)
+            }
+
             val resolutionSelector = ResolutionSelector.Builder()
                 .setAspectRatioStrategy(aspectRatioStrategy())
+                .setResolutionStrategy(
+                    ResolutionStrategy(
+                        targetResSize,
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                    )
+                )
+                .setAllowedResolutionMode(ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE)
                 .build()
 
             preview = Preview.Builder()
@@ -347,13 +362,8 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
             imageCapture = ImageCapture.Builder()
                 .setTargetRotation(rotation)
                 .setResolutionSelector(resolutionSelector)
-                .setCaptureMode(
-                    if (_cameraMode.value == CameraMode.NIGHT_SIGHT) {
-                        ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
-                    } else {
-                        ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
-                    }
-                )
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                .setJpegQuality(100)
                 .setFlashMode(toCameraXFlashMode(_flashMode.value))
                 .build()
 
@@ -399,6 +409,7 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
         }
     }
 
+    private var opticalStabilizationSupported: Boolean = false
 
     @OptIn(ExperimentalCamera2Interop::class)
     private fun readManualCapabilities() {
@@ -422,9 +433,43 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
         )?.contains(CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_ON) == true
         _videoStabilizationSupported.value = deviceSupportsVideoStabilization
         _manualControlsSupported.value = manualSensorSupported
+
+        val oisModes = camera2.getCameraCharacteristic(
+            CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION
+        )
+        opticalStabilizationSupported = oisModes?.contains(
+            CameraCharacteristics.LENS_OPTICAL_STABILIZATION_MODE_ON
+        ) == true
+
+        val hwLevel = camera2.getCameraCharacteristic(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)
+        val hwLevelName = when (hwLevel) {
+            CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3 -> "LEVEL 3 (Pro Master)"
+            CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL -> "FULL (Hardware)"
+            CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED -> "LIMITED"
+            else -> "LEGACY"
+        }
+
+        val sensorSize = camera2.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
+        val maxMp = if (sensorSize != null) {
+            (sensorSize.width * sensorSize.height) / 1_000_000f
+        } else 50.0f
+
+        _hardwareQualityStatus.value = HardwareQualityStatus(
+            hardwareLevelName = hwLevelName,
+            oisSupported = opticalStabilizationSupported,
+            oisActive = opticalStabilizationSupported && _proSettings.value.oisEnabled,
+            maxResolutionMegapixels = maxMp,
+            highQualityDenoiseActive = _proSettings.value.hardwareDenoiseQuality,
+            edgeEnhancementActive = _proSettings.value.edgeSharpeningBoost,
+            chromaticAberrationCorrectionActive = true,
+            distortionCorrectionActive = true,
+            toneMappingActive = true,
+            uncompressedJpegQuality = 100
+        )
+
         Log.i(
             TAG,
-            "Manual sensor=$manualSensorSupported iso=$isoRange exposure=$exposureTimeRange minFocus=$minFocusDistance videoStabilization=$deviceSupportsVideoStabilization"
+            "Hardware Level=$hwLevelName OIS=$opticalStabilizationSupported SensorMP=$maxMp Manual=$manualSensorSupported"
         )
     }
 
@@ -434,6 +479,7 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
         val pro = _proSettings.value
         val builder = CaptureRequestOptions.Builder()
 
+        // 1. Exposure controls
         val wantsManualExposure = manualSensorSupported && (!pro.isIsoAuto || !pro.isShutterAuto)
         if (wantsManualExposure) {
             builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
@@ -456,6 +502,7 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
             builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
         }
 
+        // 2. White Balance
         if (pro.isWbAuto) {
             builder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
         } else {
@@ -465,6 +512,7 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
             )
         }
 
+        // 3. Focus Mode
         if (!pro.isFocusAuto && minFocusDistance > 0f) {
             builder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
             builder.setCaptureRequestOption(
@@ -478,6 +526,53 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
             )
         }
 
+        // 4. Optical Image Stabilization (Physical Gyro OIS)
+        if (opticalStabilizationSupported) {
+            builder.setCaptureRequestOption(
+                CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                if (pro.oisEnabled) CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON else CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF
+            )
+        }
+
+        // 5. Hardware-level Image Processing Pipeline for Crystal Clarity
+        builder.setCaptureRequestOption(
+            CaptureRequest.NOISE_REDUCTION_MODE,
+            if (pro.hardwareDenoiseQuality) CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY else CaptureRequest.NOISE_REDUCTION_MODE_FAST
+        )
+
+        builder.setCaptureRequestOption(
+            CaptureRequest.EDGE_MODE,
+            if (pro.edgeSharpeningBoost) CaptureRequest.EDGE_MODE_HIGH_QUALITY else CaptureRequest.EDGE_MODE_FAST
+        )
+
+        builder.setCaptureRequestOption(
+            CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE,
+            CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE_HIGH_QUALITY
+        )
+
+        builder.setCaptureRequestOption(
+            CaptureRequest.SHADING_MODE,
+            CaptureRequest.SHADING_MODE_HIGH_QUALITY
+        )
+
+        builder.setCaptureRequestOption(
+            CaptureRequest.HOT_PIXEL_MODE,
+            CaptureRequest.HOT_PIXEL_MODE_HIGH_QUALITY
+        )
+
+        builder.setCaptureRequestOption(
+            CaptureRequest.TONEMAP_MODE,
+            CaptureRequest.TONEMAP_MODE_HIGH_QUALITY
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            builder.setCaptureRequestOption(
+                CaptureRequest.DISTORTION_CORRECTION_MODE,
+                CaptureRequest.DISTORTION_CORRECTION_MODE_HIGH_QUALITY
+            )
+        }
+
+        // 6. Video Stabilization
         if (deviceSupportsVideoStabilization) {
             builder.setCaptureRequestOption(
                 CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
@@ -624,6 +719,16 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
         val base = activeLens?.baseZoom?.takeIf { it > 0f } ?: 1.0f
         control.setZoomRatio((requested / base).coerceIn(min, max))
     }
+
+    override fun setPhotoResolution(resolution: PhotoResolution) {
+        val previous = _photoResolution.value
+        super.setPhotoResolution(resolution)
+        if (previous != resolution) {
+            boundSignature = null
+            startCamera()
+        }
+    }
+
 
     override fun setFlash(flash: FlashMode) {
         super.setFlash(flash)

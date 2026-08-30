@@ -18,6 +18,7 @@ interface CameraEngine {
     val timerDuration: StateFlow<TimerDuration>
     val gridType: StateFlow<GridType>
     val proSettings: StateFlow<ProSettings>
+    val hardwareQualityStatus: StateFlow<HardwareQualityStatus>
     val manualControlsSupported: StateFlow<Boolean>
     val videoStabilizationSupported: StateFlow<Boolean>
     val videoStabilizationEnabled: StateFlow<Boolean>

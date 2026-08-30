@@ -35,6 +35,7 @@ enum class ProTab(val title: String) {
     FOCUS("Focus"),
     EV("EV"),
     WB("WB"),
+    HARDWARE("Hardware ISP"),
     HISTOGRAM("Histogram")
 }
 
@@ -71,6 +72,7 @@ fun ProControlsSheet(
                     ProTab.FOCUS -> proSettings.formatFocus()
                     ProTab.EV -> "${if (proSettings.evBias >= 0) "+" else ""}${proSettings.evBias} EV"
                     ProTab.WB -> proSettings.formatWb()
+                    ProTab.HARDWARE -> if (proSettings.oisEnabled && proSettings.edgeSharpeningBoost) "MAX RES" else "CUSTOM"
                     ProTab.HISTOGRAM -> "RGB"
                 }
 
@@ -123,6 +125,7 @@ fun ProControlsSheet(
                 ProTab.FOCUS -> FocusControl(proSettings, onProSettingsChange)
                 ProTab.EV -> EvControl(proSettings, onProSettingsChange)
                 ProTab.WB -> WbControl(proSettings, onProSettingsChange)
+                ProTab.HARDWARE -> HardwareControl(proSettings, onProSettingsChange)
                 ProTab.HISTOGRAM -> HistogramViewer(histogramData)
             }
         }
@@ -413,6 +416,64 @@ fun HistogramViewer(histogramData: HistogramData) {
                     size = Size(barWidth - 1, bH)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun HardwareControl(
+    proSettings: ProSettings,
+    onChange: ((ProSettings) -> ProSettings) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        item {
+            FilterChip(
+                selected = proSettings.oisEnabled,
+                onClick = { onChange { it.copy(oisEnabled = !it.oisEnabled) } },
+                label = { Text(if (proSettings.oisEnabled) "OIS Gyro: ON" else "OIS: OFF", maxLines = 1) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = PixelYellowAccent,
+                    selectedLabelColor = PixelPitchBlack
+                )
+            )
+        }
+        item {
+            FilterChip(
+                selected = proSettings.edgeSharpeningBoost,
+                onClick = { onChange { it.copy(edgeSharpeningBoost = !it.edgeSharpeningBoost) } },
+                label = { Text(if (proSettings.edgeSharpeningBoost) "Edge Detail: HQ" else "Edge: FAST", maxLines = 1) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = PixelYellowAccent,
+                    selectedLabelColor = PixelPitchBlack
+                )
+            )
+        }
+        item {
+            FilterChip(
+                selected = proSettings.hardwareDenoiseQuality,
+                onClick = { onChange { it.copy(hardwareDenoiseQuality = !it.hardwareDenoiseQuality) } },
+                label = { Text(if (proSettings.hardwareDenoiseQuality) "Denoise: HQ Level 3" else "Denoise: FAST", maxLines = 1) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = PixelYellowAccent,
+                    selectedLabelColor = PixelPitchBlack
+                )
+            )
+        }
+        item {
+            AssistChip(
+                onClick = {},
+                label = { Text("Lossless JPEG 100", maxLines = 1) }
+            )
+        }
+        item {
+            AssistChip(
+                onClick = {},
+                label = { Text("Chromatic & Shading: AUTO", maxLines = 1) }
+            )
         }
     }
 }

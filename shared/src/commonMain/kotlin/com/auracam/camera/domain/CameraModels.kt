@@ -16,7 +16,10 @@ data class ProSettings(
     val highlightBias: Float = 0.0f, // Dual exposure slider (highlights) -1.0 to 1.0
     val shadowBias: Float = 0.0f, // Dual exposure slider (shadows) -1.0 to 1.0
     val focusPeakingEnabled: Boolean = false,
-    val zebraClippingEnabled: Boolean = false
+    val zebraClippingEnabled: Boolean = false,
+    val oisEnabled: Boolean = true,
+    val hardwareDenoiseQuality: Boolean = true,
+    val edgeSharpeningBoost: Boolean = true
 ) {
     fun formatShutterSpeed(): String {
         return if (isShutterAuto) {
@@ -116,4 +119,18 @@ data class CaptureProgress(
     val state: CaptureState = CaptureState.IDLE,
     val progress: Float = 0f,
     val message: String = ""
+)
+
+@Serializable
+data class HardwareQualityStatus(
+    val hardwareLevelName: String = "LEVEL 3 / FULL",
+    val oisSupported: Boolean = true,
+    val oisActive: Boolean = true,
+    val maxResolutionMegapixels: Float = 50.0f,
+    val highQualityDenoiseActive: Boolean = true,
+    val edgeEnhancementActive: Boolean = true,
+    val chromaticAberrationCorrectionActive: Boolean = true,
+    val distortionCorrectionActive: Boolean = true,
+    val toneMappingActive: Boolean = true,
+    val uncompressedJpegQuality: Int = 100
 )
