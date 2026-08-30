@@ -38,6 +38,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -47,10 +48,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.auracam.camera.domain.CameraMode
 import com.auracam.camera.domain.CapturedMedia
 import com.auracam.processing.ComputationalPipeline
 import com.auracam.ui.theme.*
 import com.auracam.ui.util.rememberMediaImage
+import kotlinx.coroutines.launch
 
 @Composable
 fun GalleryPreviewSheet(
@@ -71,6 +75,7 @@ fun GalleryPreviewSheet(
     var chromeVisible by remember { mutableStateOf(true) }
     var showDetails by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<CapturedMedia?>(null) }
+    val coroutineScope = rememberCoroutineScope()
 
     val pagerState = rememberPagerState(
         initialPage = initialIndex.coerceIn(0, media.lastIndex),
@@ -80,7 +85,9 @@ fun GalleryPreviewSheet(
     val current = media[currentIndex]
 
     val railState = rememberLazyListState()
-    LaunchedEffect(currentIndex) { railState.animateScrollToItem(currentIndex) }
+    LaunchedEffect(currentIndex) {
+        railState.animateScrollToItem(currentIndex)
+    }
 
     LaunchedEffect(showDetails, current.id) {
         if (showDetails) onLoadExif?.invoke(current)
@@ -94,7 +101,8 @@ fun GalleryPreviewSheet(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            pageSpacing = 12.dp
+            pageSpacing = 12.dp,
+            userScrollEnabled = true
         ) { page ->
             ZoomableMedia(
                 media = media[page],
@@ -103,10 +111,11 @@ fun GalleryPreviewSheet(
             )
         }
 
+        // Top App Bar Chrome
         AnimatedVisibility(
             visible = chromeVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn() + slideInVertically { -it },
+            exit = fadeOut() + slideOutVertically { -it },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             TopChrome(
@@ -121,6 +130,7 @@ fun GalleryPreviewSheet(
             )
         }
 
+        // Bottom Thumbnail Strip Chrome
         AnimatedVisibility(
             visible = chromeVisible && !showDetails,
             enter = fadeIn() + slideInVertically { it },
@@ -132,10 +142,15 @@ fun GalleryPreviewSheet(
                 currentIndex = currentIndex,
                 railState = railState,
                 watermark = if (watermarkEnabled) watermarkTextFor(current) else null,
-                onSelect = { pagerState.requestScrollToPage(it) }
+                onSelect = { page ->
+                    coroutineScope.launch {
+                        pagerState.animateScrollToPage(page)
+                    }
+                }
             )
         }
 
+        // EXIF Details Bottom Sheet
         AnimatedVisibility(
             visible = showDetails,
             enter = fadeIn() + slideInVertically { it },
@@ -160,6 +175,112 @@ fun GalleryPreviewSheet(
 }
 
 @Composable
+private fun ZoomableMedia(
+    media: CapturedMedia,
+    onToggleChrome: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var scale by remember { mutableStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+
+    val imageBitmap = rememberMediaImage(media.uri)
+    val isVideo = media.mode == CameraMode.VIDEO || media.fileName.endsWith(".mp4")
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(media.id) {
+                detectTapGestures(
+                    onDoubleTap = { tapOffset ->
+                        scale = if (scale > 1.2f) 1f else 2.5f
+                        offset = Offset.Zero
+                    },
+                    onTap = { onToggleChrome() }
+                )
+            }
+            .pointerInput(media.id) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    val newScale = (scale * zoom).coerceIn(1f, 5f)
+                    val maxOffsetX = (size.width * (newScale - 1f)) / 2f
+                    val maxOffsetY = (size.height * (newScale - 1f)) / 2f
+
+                    scale = newScale
+                    if (newScale > 1.05f) {
+                        offset = Offset(
+                            x = (offset.x + pan.x).coerceIn(-maxOffsetX, maxOffsetX),
+                            y = (offset.y + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
+                        )
+                    } else {
+                        offset = Offset.Zero
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (imageBitmap != null) {
+            Image(
+                bitmap = imageBitmap,
+                contentDescription = media.fileName,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offset.x,
+                        translationY = offset.y
+                    )
+            )
+        } else {
+            // Fallback stylized preview placeholder
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF181B20)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isVideo) Icons.Default.PlayArrow else Icons.Default.PhotoLibrary,
+                        contentDescription = null,
+                        tint = PixelYellowAccent,
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Text(
+                        text = media.fileName,
+                        color = PixelTextWhite,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Video Play Icon Overlay
+        if (isVideo) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x99000000))
+                    .border(1.5.dp, Color.White.copy(alpha = 0.6f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play Video",
+                    tint = PixelYellowAccent,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun TopChrome(
     media: CapturedMedia,
     position: Int,
@@ -175,11 +296,11 @@ private fun TopChrome(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)
+                    listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)
                 )
             )
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-            .padding(horizontal = 8.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -190,7 +311,7 @@ private fun TopChrome(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 8.dp)
+                    .padding(horizontal = 12.dp)
             ) {
                 Text(
                     text = media.fileName,
@@ -200,8 +321,8 @@ private fun TopChrome(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "$position / $total  •  ${media.exif.timestamp}",
-                    style = AuraCamTheme.cameraTypography.hudMetric,
+                    text = "$position of $total  •  ${media.exif.timestamp}",
+                    fontSize = 11.sp,
                     color = PixelTextSecondary,
                     maxLines = 1
                 )
@@ -209,15 +330,15 @@ private fun TopChrome(
 
             if (onShare != null) {
                 GlassIconButton(Icons.Default.Share, "Share", onClick = onShare)
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(8.dp))
             }
             if (onDelete != null) {
                 GlassIconButton(Icons.Default.Delete, "Delete", onClick = onDelete)
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(8.dp))
             }
             GlassIconButton(
                 icon = Icons.Default.Info,
-                contentDescription = "Photo details",
+                contentDescription = "Details",
                 active = detailsOpen,
                 onClick = onToggleDetails
             )
@@ -238,341 +359,143 @@ private fun BottomChrome(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))
                 )
             )
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-            .padding(bottom = 12.dp),
+            .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (watermark != null) {
             Box(
                 modifier = Modifier
-                    .padding(bottom = 12.dp)
-                    .pixelGlass(
-                        shape = CircleShape,
-                        backgroundColor = PixelGlassScrimHeavy,
-                        borderColor = PixelGlassBorder
-                    )
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x66000000))
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
                 Text(
                     text = watermark,
-                    style = AuraCamTheme.cameraTypography.hudMetric,
-                    color = PixelTextPrimary
+                    color = PixelYellowAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
+            Spacer(Modifier.height(8.dp))
         }
 
+        // Horizontal Thumbnail Filmstrip
         LazyRow(
             state = railState,
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp),
             contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            itemsIndexed(media, key = { _, item -> item.id }) { index, item ->
-                RailThumbnail(
-                    media = item,
-                    selected = index == currentIndex,
-                    onClick = { onSelect(index) }
-                )
-            }
-        }
-    }
-}
+            itemsIndexed(media) { index, item ->
+                val isSelected = index == currentIndex
+                val thumb = rememberMediaImage(item.uri)
 
-@Composable
-private fun RailThumbnail(
-    media: CapturedMedia,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val thumbnail = rememberMediaImage(media.uri, maxDimension = 256)
-    val size = if (selected) 62.dp else 50.dp
-
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(RoundedCornerShape(12.dp))
-            .background(PixelSurfaceContainerHigh)
-            .then(
-                if (selected) {
-                    Modifier.border(2.dp, PixelYellowAccent, RoundedCornerShape(12.dp))
-                } else {
-                    Modifier
-                }
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        if (thumbnail != null) {
-            Image(
-                bitmap = thumbnail,
-                contentDescription = media.fileName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = if (selected) 1f else 0.55f }
-            )
-        }
-
-        if (isVideo(media)) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = null,
-                tint = PixelTextWhite,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun ZoomableMedia(
-    media: CapturedMedia,
-    onToggleChrome: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val image = rememberMediaImage(media.uri)
-    var scale by remember(media.id) { mutableStateOf(1f) }
-    var offsetX by remember(media.id) { mutableStateOf(0f) }
-    var offsetY by remember(media.id) { mutableStateOf(0f) }
-
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        if (image == null) {
-            CircularProgressIndicator(color = PixelYellowAccent)
-            return@Box
-        }
-
-        Image(
-            bitmap = image,
-            contentDescription = media.fileName,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = offsetX
-                    translationY = offsetY
-                }
-                .pointerInput(media.id) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        scale = (scale * zoom).coerceIn(1f, 6f)
-                        if (scale > 1f) {
-                            offsetX += pan.x
-                            offsetY += pan.y
-                        } else {
-                            offsetX = 0f
-                            offsetY = 0f
-                        }
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF22262E))
+                        .border(
+                            width = if (isSelected) 2.5.dp else 1.dp,
+                            color = if (isSelected) PixelYellowAccent else Color(0x33FFFFFF),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .clickable { onSelect(index) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (thumb != null) {
+                        Image(
+                            bitmap = thumb,
+                            contentDescription = item.fileName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (item.mode == CameraMode.VIDEO) Icons.Default.PlayArrow else Icons.Default.PhotoLibrary,
+                            contentDescription = null,
+                            tint = if (isSelected) PixelYellowAccent else PixelTextSecondary,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                 }
-                .pointerInput(media.id) {
-                    detectTapGestures(
-                        onTap = { onToggleChrome() },
-                        onDoubleTap = {
-                            if (scale > 1f) {
-                                scale = 1f
-                                offsetX = 0f
-                                offsetY = 0f
-                            } else {
-                                scale = 2.5f
-                            }
-                        }
-                    )
-                }
-        )
-
-        if (isVideo(media)) {
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.55f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Video",
-                    tint = PixelTextWhite,
-                    modifier = Modifier.size(36.dp)
-                )
             }
         }
     }
 }
 
 @Composable
-private fun DetailsSheet(media: CapturedMedia, onDismiss: () -> Unit) {
-    val rows = detailRows(media)
-
-    Column(
+private fun DetailsSheet(
+    media: CapturedMedia,
+    onDismiss: () -> Unit
+) {
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 460.dp)
             .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-            .background(PixelSurfaceContainerLow)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+            .background(Color(0xF0181B22))
+            .border(1.dp, PixelGlassBorder, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+            .padding(20.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss
-                )
-                .padding(vertical = 12.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(width = 36.dp, height = 4.dp)
-                    .clip(CircleShape)
-                    .background(PixelTextMuted)
-            )
-        }
-
-        Text(
-            text = "Details",
-            style = AuraCamTheme.typography.titleMedium,
-            color = PixelTextWhite,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-        )
-
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(top = 8.dp, bottom = 24.dp),
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            rows.forEach { (title, entries) ->
-                if (entries.isEmpty()) return@forEach
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(PixelSurfaceContainer)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = title,
-                        style = AuraCamTheme.cameraTypography.pillLabel,
-                        color = PixelYellowAccent,
-                        fontWeight = FontWeight.Bold
-                    )
-                    entries.forEach { (label, value) -> DetailRow(label, value) }
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Photo Info & EXIF",
+                    style = AuraCamTheme.typography.titleMedium,
+                    color = PixelTextWhite
+                )
+                GlassIconButton(Icons.Default.Close, "Dismiss", onClick = onDismiss)
             }
+
+            // EXIF Parameter Grid
+            val exif = media.exif
+            InfoRow("File Name", media.fileName)
+            InfoRow("Capture Time", exif.timestamp)
+            InfoRow("Device", exif.deviceModel.ifBlank { "Google Pixel (AuraCam)" })
+            InfoRow("Resolution", "${media.width} × ${media.height}")
+            InfoRow("Format", media.format.label)
+
+            if (exif.lensFocalLength.isNotBlank()) InfoRow("Focal Length", exif.lensFocalLength)
+            if (exif.aperture.isNotBlank()) InfoRow("Aperture", exif.aperture)
+            if (exif.shutterSpeed.isNotBlank()) InfoRow("Shutter Speed", exif.shutterSpeed)
+            if (exif.iso > 0) InfoRow("ISO", "${exif.iso}")
+            if (exif.exposureBias.isNotBlank()) InfoRow("Exposure Bias", exif.exposureBias)
+            if (exif.whiteBalance.isNotBlank()) InfoRow("White Balance", exif.whiteBalance)
+            val gpsLocation = exif.location
+            if (gpsLocation != null) InfoRow("GPS Location", gpsLocation)
         }
     }
 }
 
 @Composable
-private fun DetailRow(label: String, value: String) {
+private fun InfoRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.Top
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
-            text = label,
-            style = AuraCamTheme.typography.bodySmall,
-            color = PixelTextSecondary,
-            modifier = Modifier.weight(1f)
-        )
+        Text(text = label, color = PixelTextSecondary, fontSize = 13.sp)
         Text(
             text = value,
-            style = AuraCamTheme.cameraTypography.hudMetric,
             color = PixelTextWhite,
-            modifier = Modifier.weight(1.4f)
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
         )
-    }
-}
-
-@Composable
-private fun DeleteDialog(
-    media: CapturedMedia,
-    onConfirm: suspend (CapturedMedia) -> Unit,
-    onFinished: () -> Unit
-) {
-    var deleting by remember(media.id) { mutableStateOf(false) }
-
-    LaunchedEffect(media.id, deleting) {
-        if (deleting) {
-            onConfirm(media)
-            onFinished()
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = { if (!deleting) onFinished() },
-        containerColor = PixelSurfaceContainerHigh,
-        titleContentColor = PixelTextWhite,
-        textContentColor = PixelTextSecondary,
-        shape = RoundedCornerShape(28.dp),
-        title = { Text("Move to trash?") },
-        text = { Text("${media.fileName} will be permanently deleted from this device.") },
-        confirmButton = {
-            TextButton(onClick = { deleting = true }, enabled = !deleting) {
-                Text("Delete", color = PixelRecordRed, fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onFinished, enabled = !deleting) {
-                Text("Cancel", color = PixelTextSecondary)
-            }
-        }
-    )
-}
-
-@Composable
-private fun EmptyGallery(onClose: () -> Unit, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(PixelPitchBlack)
-            .windowInsetsPadding(WindowInsets.safeDrawing),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(12.dp)
-        ) {
-            GlassIconButton(Icons.Default.Close, "Close", onClick = onClose)
-        }
-
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.PhotoLibrary,
-                contentDescription = null,
-                tint = PixelTextMuted,
-                modifier = Modifier.size(48.dp)
-            )
-            Text(
-                text = "No photos yet",
-                style = AuraCamTheme.typography.titleMedium,
-                color = PixelTextSecondary
-            )
-            Text(
-                text = "Shots you take appear here.",
-                style = AuraCamTheme.typography.bodySmall,
-                color = PixelTextMuted
-            )
-        }
     }
 }
 
@@ -580,28 +503,15 @@ private fun EmptyGallery(onClose: () -> Unit, modifier: Modifier = Modifier) {
 private fun GlassIconButton(
     icon: ImageVector,
     contentDescription: String,
-    onClick: () -> Unit,
-    active: Boolean = false
+    active: Boolean = false,
+    onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .size(40.dp)
-            .then(
-                if (active) {
-                    Modifier.clip(CircleShape).background(PixelYellowAccent)
-                } else {
-                    Modifier.pixelGlass(
-                        shape = CircleShape,
-                        backgroundColor = PixelGlassScrimHeavy,
-                        borderColor = PixelGlassBorder
-                    )
-                }
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
+            .clip(CircleShape)
+            .background(if (active) PixelYellowAccent else Color(0x33FFFFFF))
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
@@ -613,41 +523,86 @@ private fun GlassIconButton(
     }
 }
 
-private fun isVideo(media: CapturedMedia) =
-    media.fileName.endsWith(".mp4", ignoreCase = true)
+@Composable
+private fun DeleteDialog(
+    media: CapturedMedia,
+    onConfirm: suspend (CapturedMedia) -> Unit,
+    onFinished: () -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+    var deleting by remember { mutableStateOf(false) }
 
-private fun watermarkTextFor(media: CapturedMedia): String? {
-    val text = ComputationalPipeline.formatPixelWatermark(media.exif)
-    return text.takeIf { media.exif.iso > 0 && media.exif.shutterSpeed.isNotBlank() }
-}
-
-private fun detailRows(media: CapturedMedia): List<Pair<String, List<Pair<String, String>>>> {
-    val exif = media.exif
-
-    val file = buildList {
-        add("Name" to media.fileName)
-        if (exif.timestamp.isNotBlank()) add("Captured" to exif.timestamp)
-        if (exif.resolution.isNotBlank()) add("Resolution" to exif.resolution)
-        if (exif.format.isNotBlank()) add("Format" to exif.format)
-    }
-
-    val camera = buildList {
-        if (exif.deviceModel.isNotBlank()) add("Device" to exif.deviceModel)
-        if (exif.lensFocalLength.isNotBlank()) add("Focal length" to exif.lensFocalLength)
-        if (exif.aperture.isNotBlank()) add("Aperture" to exif.aperture)
-        if (exif.shutterSpeed.isNotBlank()) add("Shutter" to exif.shutterSpeed)
-        if (exif.iso > 0) add("ISO" to exif.iso.toString())
-        if (exif.exposureBias.isNotBlank()) add("Exposure bias" to exif.exposureBias)
-        if (exif.whiteBalance.isNotBlank()) add("White balance" to exif.whiteBalance)
-    }
-
-    val place = buildList {
-        add("Location" to (exif.location ?: "Not recorded"))
-    }
-
-    return listOf(
-        "File" to file,
-        "Camera" to camera,
-        "Place" to place
+    AlertDialog(
+        onDismissRequest = { if (!deleting) onFinished() },
+        title = { Text("Delete Photo?", color = PixelTextWhite) },
+        text = {
+            Text(
+                "Are you sure you want to permanently delete \"${media.fileName}\"?",
+                color = PixelTextSecondary
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    deleting = true
+                    coroutineScope.launch {
+                        onConfirm(media)
+                        deleting = false
+                        onFinished()
+                    }
+                },
+                enabled = !deleting
+            ) {
+                if (deleting) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = PixelYellowAccent)
+                } else {
+                    Text("Delete", color = Color(0xFFFF5252), fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onFinished, enabled = !deleting) {
+                Text("Cancel", color = PixelTextWhite)
+            }
+        },
+        containerColor = Color(0xFF1E222A)
     )
 }
+
+@Composable
+private fun EmptyGallery(onClose: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(PixelPitchBlack)
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.PhotoLibrary,
+                contentDescription = null,
+                tint = PixelTextSecondary,
+                modifier = Modifier.size(64.dp)
+            )
+            Text(
+                text = "No Photos Yet",
+                style = AuraCamTheme.typography.titleMedium,
+                color = PixelTextWhite
+            )
+            Text(
+                text = "Captured photos and videos will appear here",
+                style = AuraCamTheme.typography.bodySmall,
+                color = PixelTextSecondary
+            )
+            Spacer(Modifier.height(8.dp))
+            GlassIconButton(Icons.Default.Close, "Close", onClick = onClose)
+        }
+    }
+}
+
+private fun watermarkTextFor(media: CapturedMedia): String =
+    "Shot on AuraCam • ${media.format.label}"

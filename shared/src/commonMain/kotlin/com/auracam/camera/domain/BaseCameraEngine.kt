@@ -149,14 +149,21 @@ abstract class BaseCameraEngine(
     override fun setLens(lens: LensFacing) {
         _currentLens.value = lens
         _zoomRatio.value = lens.zoomBase
+        _availableZoomPresets.value = if (lens == LensFacing.FRONT) {
+            listOf(1.0f, 1.4f, 2.0f)
+        } else {
+            listOf(0.5f, 1.0f, 2.0f, 5.0f, 10.0f)
+        }
     }
 
     override fun setZoom(zoom: Float) {
         _zoomRatio.value = zoom.coerceIn(0.5f, 20.0f)
-        if (zoom < 0.8f) _currentLens.value = LensFacing.BACK_ULTRA_WIDE
-        else if (zoom < 1.8f) _currentLens.value = LensFacing.BACK_WIDE
-        else if (zoom < 4.0f) _currentLens.value = LensFacing.BACK_TELEPHOTO
-        else _currentLens.value = LensFacing.BACK_SUPER_TELE
+        if (_currentLens.value != LensFacing.FRONT) {
+            if (zoom < 0.8f) _currentLens.value = LensFacing.BACK_ULTRA_WIDE
+            else if (zoom < 1.8f) _currentLens.value = LensFacing.BACK_WIDE
+            else if (zoom < 4.0f) _currentLens.value = LensFacing.BACK_TELEPHOTO
+            else _currentLens.value = LensFacing.BACK_SUPER_TELE
+        }
     }
 
     override fun setFlash(flash: FlashMode) {

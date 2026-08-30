@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -110,6 +111,15 @@ fun ViewfinderScreen(
                         .fillMaxSize()
                         .clip(RoundedCornerShape(28.dp))
                         .background(PixelDarkBackground)
+                        .pointerInput(Unit) {
+                            detectTransformGestures { _, _, zoom, _ ->
+                                if (zoom != 1f) {
+                                    val currentZ = engine.zoomRatio.value
+                                    val newZoom = (currentZ * zoom).coerceIn(0.5f, 10.0f)
+                                    engine.setZoom((newZoom * 10).toInt() / 10f)
+                                }
+                            }
+                        }
                         .pointerInput(Unit) {
                             detectTapGestures { offset ->
                                 val normX = offset.x / size.width
@@ -469,7 +479,7 @@ private fun ZoomSelectorLayer(
     val presets by engine.availableZoomPresets.collectAsState()
     ZoomSelector(
         currentZoom = zoom,
-        zoomPresets = presets,
+        availablePresets = presets,
         onZoomSelected = onZoomSelected,
         modifier = modifier
     )
