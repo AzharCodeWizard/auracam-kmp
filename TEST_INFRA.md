@@ -24,3 +24,20 @@
 | 13 | Multiplatform Compilation & Desktop Tests | ✓ | ✓ | ✓ | ✓ |
 | 14 | Physical Device Deployment | - | - | - | ✓ |
 | 15 | Screen Capture & Visual Verification | - | - | - | ✓ |
+| 16 | Engine State Machine (zoom clamp, lens select, capture, recording, release) | ✓ | ✓ | - | - |
+| 17 | EXIF Metadata (real timestamp, GPS hemispheres, auto-ISO per mode) | ✓ | ✓ | - | - |
+| 18 | Settings Persistence (defaults, round-trip, corrupt data, forward compat) | ✓ | ✓ | - | - |
+
+## Automated Suites
+| Command | Covers |
+|---|---|
+| `./gradlew :shared:desktopTest` | `CameraEngineTest`, `PixelViewfinderAestheticsTest`, `BaseCameraEngineTest`, `ExifMetadataTest`, `SettingsStoreTest` |
+| `./gradlew :composeApp:desktopTest` | Compose module compilation and any UI-layer tests |
+| `./gradlew :composeApp:lintRelease` | Android lint, `abortOnError = true` |
+| `./gradlew :composeApp:assembleRelease` | R8 shrink + resource shrink over the release variant |
+| `./gradlew :composeApp:verifyReleaseSigning` | Fails when release would fall back to the debug key |
+| `./gradlew :shared:compileKotlinIosSimulatorArm64` | Apple target compilation |
+
+## Gaps
+- No instrumented (`androidTest`) UI tests; device verification is still manual via `installDebug` + `adb exec-out screencap`.
+- Compose UI tests are not wired up (`compose.uiTest` dependency not declared).

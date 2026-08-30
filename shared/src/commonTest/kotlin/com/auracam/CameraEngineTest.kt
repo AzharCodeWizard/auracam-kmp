@@ -51,7 +51,8 @@ class CameraEngineTest {
             zoom = 1.0f,
             proSettings = ProSettings(iso = 200, isIsoAuto = false),
             captureFormat = CaptureFormat.RAW_DNG,
-            ultraHdr = true
+            ultraHdr = true,
+            capturedAtEpochMillis = 1_756_000_000_000L
         )
 
         assertTrue(exif.deviceModel.contains("Pixel"))

@@ -22,19 +22,19 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.auracam.settings.AppSettings
 import com.auracam.ui.components.pixelGlass
 import com.auracam.ui.theme.*
+import com.auracam.ui.util.rememberCameraPermissionState
 
 @Composable
 fun SettingsScreen(
+    settings: AppSettings,
+    onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var rawCaptureEnabled by remember { mutableStateOf(true) }
-    var locationTagging by remember { mutableStateOf(true) }
-    var shutterSound by remember { mutableStateOf(false) }
-    var framingHints by remember { mutableStateOf(true) }
-    var videoStabilization by remember { mutableStateOf(true) }
+    val permissionState = rememberCameraPermissionState()
 
     Column(
         modifier = modifier
@@ -87,15 +87,19 @@ fun SettingsScreen(
                     icon = Icons.Default.Camera,
                     title = "RAW + JPEG Control",
                     subtitle = "Saves uncompressed DNG files alongside JPEG",
-                    checked = rawCaptureEnabled,
-                    onCheckedChange = { rawCaptureEnabled = it }
+                    checked = settings.rawCaptureEnabled,
+                    onCheckedChange = { value ->
+                        onSettingsChange { it.copy(rawCaptureEnabled = value) }
+                    }
                 )
                 SettingsSwitchItem(
                     icon = Icons.Default.Videocam,
                     title = "Video Stabilization",
                     subtitle = "OIS + EIS Electronic Steady Cam",
-                    checked = videoStabilization,
-                    onCheckedChange = { videoStabilization = it }
+                    checked = settings.videoStabilizationEnabled,
+                    onCheckedChange = { value ->
+                        onSettingsChange { it.copy(videoStabilizationEnabled = value) }
+                    }
                 )
             }
 
@@ -105,8 +109,19 @@ fun SettingsScreen(
                     icon = Icons.Default.GridOn,
                     title = "Framing Hints",
                     subtitle = "Real-time composition suggestions & level indicator",
-                    checked = framingHints,
-                    onCheckedChange = { framingHints = it }
+                    checked = settings.framingHintsEnabled,
+                    onCheckedChange = { value ->
+                        onSettingsChange { it.copy(framingHintsEnabled = value) }
+                    }
+                )
+                SettingsSwitchItem(
+                    icon = Icons.Default.Copyright,
+                    title = "Watermark",
+                    subtitle = "Overlay capture metadata on the gallery preview",
+                    checked = settings.watermarkEnabled,
+                    onCheckedChange = { value ->
+                        onSettingsChange { it.copy(watermarkEnabled = value) }
+                    }
                 )
             }
 
@@ -115,16 +130,36 @@ fun SettingsScreen(
                 SettingsSwitchItem(
                     icon = Icons.Default.LocationOn,
                     title = "Save Location",
-                    subtitle = "Attach GPS coordinates to EXIF metadata",
-                    checked = locationTagging,
-                    onCheckedChange = { locationTagging = it }
+                    subtitle = if (settings.geotaggingEnabled && !permissionState.locationGranted) {
+                        "Location permission required"
+                    } else {
+                        "Attach GPS coordinates to EXIF metadata"
+                    },
+                    checked = settings.geotaggingEnabled && permissionState.locationGranted,
+                    onCheckedChange = { value ->
+                        if (value && !permissionState.locationGranted) {
+                            permissionState.requestLocation()
+                        }
+                        onSettingsChange { it.copy(geotaggingEnabled = value) }
+                    }
                 )
                 SettingsSwitchItem(
                     icon = Icons.AutoMirrored.Filled.VolumeUp,
                     title = "Camera Sounds",
                     subtitle = "Play shutter sound on capture",
-                    checked = shutterSound,
-                    onCheckedChange = { shutterSound = it }
+                    checked = settings.shutterSoundEnabled,
+                    onCheckedChange = { value ->
+                        onSettingsChange { it.copy(shutterSoundEnabled = value) }
+                    }
+                )
+                SettingsSwitchItem(
+                    icon = Icons.Default.Vibration,
+                    title = "Haptic Feedback",
+                    subtitle = "Vibrate on shutter, mode change and dial ticks",
+                    checked = settings.hapticsEnabled,
+                    onCheckedChange = { value ->
+                        onSettingsChange { it.copy(hapticsEnabled = value) }
+                    }
                 )
             }
 
@@ -138,7 +173,7 @@ fun SettingsScreen(
                 SettingsInfoItem(
                     icon = Icons.Default.Code,
                     title = "Engine",
-                    value = "Kotlin Multiplatform + CameraX + AVFoundation"
+                    value = "Kotlin Multiplatform + CameraX"
                 )
             }
 

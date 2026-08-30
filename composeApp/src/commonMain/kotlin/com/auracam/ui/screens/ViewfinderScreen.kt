@@ -20,22 +20,32 @@ import androidx.compose.ui.unit.dp
 import com.auracam.camera.domain.*
 import com.auracam.ui.components.*
 import com.auracam.ui.theme.*
-import com.auracam.ui.util.PlatformSoundAndHaptics
+import com.auracam.settings.AppSettings
+import com.auracam.ui.util.SoundAndHaptics
 import com.auracam.ui.util.rememberPlatformShare
+import com.auracam.ui.util.rememberSoundAndHaptics
 import kotlinx.coroutines.launch
 
 @Composable
 fun ViewfinderScreen(
     engine: CameraEngine,
+    settings: AppSettings,
+    microphoneGranted: Boolean,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val soundAndHaptics = remember { PlatformSoundAndHaptics() }
+    val platformFeedback = rememberSoundAndHaptics()
+    val soundAndHaptics = remember(platformFeedback, settings.shutterSoundEnabled, settings.hapticsEnabled) {
+        GatedSoundAndHaptics(
+            delegate = platformFeedback,
+            soundEnabled = settings.shutterSoundEnabled,
+            hapticsEnabled = settings.hapticsEnabled
+        )
+    }
 
     val cameraMode by engine.cameraMode.collectAsState()
     val currentLens by engine.currentLens.collectAsState()
-    val zoomRatio by engine.zoomRatio.collectAsState()
     val flashMode by engine.flashMode.collectAsState()
     val aspectRatio by engine.aspectRatio.collectAsState()
     val colorProfile by engine.colorProfile.collectAsState()
@@ -43,15 +53,13 @@ fun ViewfinderScreen(
     val timerDuration by engine.timerDuration.collectAsState()
     val gridType by engine.gridType.collectAsState()
     val proSettings by engine.proSettings.collectAsState()
-    val liveHistogram by engine.liveHistogram.collectAsState()
-    val horizonLeveler by engine.horizonLeveler.collectAsState()
     val captureProgress by engine.captureProgress.collectAsState()
     val isRecording by engine.isRecording.collectAsState()
-    val recordingDurationSeconds by engine.recordingDurationSeconds.collectAsState()
     val focusPoint by engine.focusPoint.collectAsState()
     val watermarkEnabled by engine.watermarkEnabled.collectAsState()
     val ultraHdrEnabled by engine.ultraHdrEnabled.collectAsState()
     val recentMedia by engine.recentMedia.collectAsState()
+    val galleryList by engine.galleryList.collectAsState()
 
     var showQuickSettings by remember { mutableStateOf(false) }
     var showGalleryPreview by remember { mutableStateOf(false) }
@@ -150,17 +158,24 @@ fun ViewfinderScreen(
                         else -> {}
                     }
 
-                    // C. Framing Grids
-                    FramingGridOverlay(
-                        gridType = gridType,
+                    ExposureMaskLayer(
+                        engine = engine,
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // D. 3D Dual-Axis Leveler
-                    DualAxisLeveler(
-                        leveler = horizonLeveler,
-                        modifier = Modifier.align(Alignment.Center)
+                    // C. Framing Grids
+                    FramingGridOverlay(
+                        gridType = if (settings.framingHintsEnabled) gridType else GridType.NONE,
+                        modifier = Modifier.fillMaxSize()
                     )
+
+                    if (settings.framingHintsEnabled) {
+                        LevelerLayer(
+                            engine = engine,
+                            onLevelReached = soundAndHaptics::vibrateLevelLock,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
 
                     // E. Focus Bracket & Exposure Sliders
                     FocusBracketOverlay(
@@ -185,13 +200,55 @@ fun ViewfinderScreen(
                 }
 
                 // Video Recording Active HUD (Floating in Viewport)
-                VideoRecordingHUD(
-                    isRecording = isRecording,
-                    recordingDurationSeconds = recordingDurationSeconds,
+                RecordingHudLayer(
+                    engine = engine,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = 12.dp)
                 )
+
+                val modeNotice = cameraMode.singleFrameNotice
+                if (modeNotice != null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 44.dp)
+                            .pixelGlass(
+                                shape = RoundedCornerShape(50),
+                                backgroundColor = PixelGlassScrimHeavy,
+                                borderColor = PixelGlassBorder
+                            )
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = modeNotice,
+                            style = AuraCamTheme.cameraTypography.hudMetric,
+                            color = PixelTextSecondary
+                        )
+                    }
+                }
+
+                if (!microphoneGranted &&
+                    (cameraMode == CameraMode.VIDEO || cameraMode == CameraMode.CINEMATIC)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 12.dp)
+                            .pixelGlass(
+                                shape = RoundedCornerShape(50),
+                                backgroundColor = PixelGlassScrimHeavy,
+                                borderColor = PixelGlassBorder
+                            )
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Microphone off — recording without audio",
+                            style = AuraCamTheme.cameraTypography.hudMetric,
+                            color = PixelTextSecondary
+                        )
+                    }
+                }
             }
 
             // 3. Floating Zoom Selector Bar
@@ -201,8 +258,8 @@ fun ViewfinderScreen(
                     .padding(vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
-                ZoomSelector(
-                    currentZoom = zoomRatio,
+                ZoomSelectorLayer(
+                    engine = engine,
                     onZoomSelected = {
                         engine.setZoom(it)
                         soundAndHaptics.vibrateSnap()
@@ -223,10 +280,8 @@ fun ViewfinderScreen(
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut()
                 ) {
-                    ProControlsSheet(
-                        proSettings = proSettings,
-                        histogramData = liveHistogram,
-                        onProSettingsChange = { engine.updateProSettings(it) },
+                    ProControlsLayer(
+                        engine = engine,
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
                 }
@@ -244,7 +299,7 @@ fun ViewfinderScreen(
                 ShutterControlRow(
                     mode = cameraMode,
                     isRecording = isRecording,
-                    recordingDurationSeconds = recordingDurationSeconds,
+                    recordingDurationSeconds = 0,
                     captureProgress = captureProgress,
                     recentMedia = recentMedia,
                     onShutterClick = {
@@ -252,10 +307,10 @@ fun ViewfinderScreen(
                         coroutineScope.launch {
                             if (cameraMode == CameraMode.VIDEO || cameraMode == CameraMode.CINEMATIC) {
                                 if (!isRecording) soundAndHaptics.playVideoStartSound() else soundAndHaptics.playVideoStopSound()
-                                engine.toggleVideoRecording()
+                                runCatching { engine.toggleVideoRecording() }
                             } else {
                                 soundAndHaptics.playShutterSound()
-                                engine.capturePhoto()
+                                runCatching { engine.capturePhoto() }
                             }
                         }
                     },
@@ -265,10 +320,9 @@ fun ViewfinderScreen(
                         engine.setLens(nextLens)
                     },
                     onGalleryClick = {
-                        if (recentMedia != null) {
-                            showGalleryPreview = true
-                            soundAndHaptics.vibrateSnap()
-                        }
+                        showGalleryPreview = true
+                        soundAndHaptics.vibrateSnap()
+                        coroutineScope.launch { engine.refreshGallery() }
                     }
                 )
             }
@@ -327,14 +381,108 @@ fun ViewfinderScreen(
         }
 
         // Fullscreen Gallery Preview Sheet
-        if (showGalleryPreview && recentMedia != null) {
+        if (showGalleryPreview) {
             val shareMedia = rememberPlatformShare()
+            val initialIndex = remember(galleryList, recentMedia) {
+                galleryList.indexOfFirst { it.id == recentMedia?.id }.coerceAtLeast(0)
+            }
             GalleryPreviewSheet(
-                media = recentMedia!!,
+                media = galleryList,
+                initialIndex = initialIndex,
                 watermarkEnabled = watermarkEnabled,
                 onShare = shareMedia,
+                onDelete = { engine.deleteMedia(it) },
+                onLoadExif = { engine.loadExif(it) },
                 onClose = { showGalleryPreview = false }
             )
         }
     }
+}
+
+private class GatedSoundAndHaptics(
+    private val delegate: SoundAndHaptics,
+    private val soundEnabled: Boolean,
+    private val hapticsEnabled: Boolean
+) : SoundAndHaptics {
+    override fun playShutterSound() {
+        if (soundEnabled) delegate.playShutterSound()
+    }
+
+    override fun playVideoStartSound() {
+        if (soundEnabled) delegate.playVideoStartSound()
+    }
+
+    override fun playVideoStopSound() {
+        if (soundEnabled) delegate.playVideoStopSound()
+    }
+
+    override fun vibrateSnap() {
+        if (hapticsEnabled) delegate.vibrateSnap()
+    }
+
+    override fun vibrateLevelLock() {
+        if (hapticsEnabled) delegate.vibrateLevelLock()
+    }
+
+    override fun release() = Unit
+}
+
+@Composable
+private fun LevelerLayer(
+    engine: CameraEngine,
+    onLevelReached: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val leveler by engine.horizonLeveler.collectAsState()
+
+    LaunchedEffect(leveler.isLevel) {
+        if (leveler.isLevel) onLevelReached()
+    }
+
+    DualAxisLeveler(leveler = leveler, modifier = modifier)
+}
+
+@Composable
+private fun ExposureMaskLayer(engine: CameraEngine, modifier: Modifier = Modifier) {
+    val mask by engine.exposureMask.collectAsState()
+    ExposureMaskOverlay(mask = mask, modifier = modifier)
+}
+
+@Composable
+private fun RecordingHudLayer(engine: CameraEngine, modifier: Modifier = Modifier) {
+    val isRecording by engine.isRecording.collectAsState()
+    val seconds by engine.recordingDurationSeconds.collectAsState()
+    VideoRecordingHUD(
+        isRecording = isRecording,
+        recordingDurationSeconds = seconds,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun ZoomSelectorLayer(
+    engine: CameraEngine,
+    onZoomSelected: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val zoom by engine.zoomRatio.collectAsState()
+    val presets by engine.availableZoomPresets.collectAsState()
+    ZoomSelector(
+        currentZoom = zoom,
+        zoomPresets = presets,
+        onZoomSelected = onZoomSelected,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun ProControlsLayer(engine: CameraEngine, modifier: Modifier = Modifier) {
+    val proSettings by engine.proSettings.collectAsState()
+    val histogram by engine.liveHistogram.collectAsState()
+    ProControlsSheet(
+        proSettings = proSettings,
+        histogramData = histogram,
+        onProSettingsChange = { engine.updateProSettings(it) },
+        modifier = modifier
+    )
 }

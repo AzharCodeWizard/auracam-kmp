@@ -1,16 +1,18 @@
 package com.auracam.processing
 
 import com.auracam.camera.domain.*
+import com.auracam.location.GeoLocation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 object ComputationalPipeline {
 
-    /**
-     * Executes the computational capture pipeline based on mode and pro settings.
-     * Yields progressive capture states (Alignment -> Fusion -> Real Tone Denoise -> EXIF & Watermark).
-     */
     fun processCapture(
         mode: CameraMode,
         lens: LensFacing,
@@ -21,32 +23,32 @@ object ComputationalPipeline {
         watermarkEnabled: Boolean,
         ultraHdr: Boolean
     ): Flow<CaptureProgress> = flow {
-        emit(CaptureProgress(CaptureState.ALIGNING_FRAMES, 0.15f, "Capturing 15 Zero-Shutter-Lag raw frames..."))
+        emit(CaptureProgress(CaptureState.ALIGNING_FRAMES, 0.15f, "Capturing frame..."))
         delay(120)
 
         when (mode) {
             CameraMode.NIGHT_SIGHT -> {
-                emit(CaptureProgress(CaptureState.ALIGNING_FRAMES, 0.35f, "Aligning multi-exposure low-light burst..."))
+                emit(CaptureProgress(CaptureState.ALIGNING_FRAMES, 0.35f, "Preparing low-light capture..."))
                 delay(200)
-                emit(CaptureProgress(CaptureState.EXPOSURE_STACKING, 0.65f, "Stacking frames & reducing sensor noise..."))
+                emit(CaptureProgress(CaptureState.EXPOSURE_STACKING, 0.65f, "Processing..."))
                 delay(250)
-                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.85f, "Pixel Real Tone night synthesis..."))
+                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.85f, "Finishing..."))
                 delay(150)
             }
             CameraMode.ASTRO -> {
-                emit(CaptureProgress(CaptureState.ALIGNING_FRAMES, 0.25f, "Celestial tracking & star centroid alignment..."))
+                emit(CaptureProgress(CaptureState.ALIGNING_FRAMES, 0.25f, "Preparing long exposure..."))
                 delay(250)
-                emit(CaptureProgress(CaptureState.EXPOSURE_STACKING, 0.60f, "Integrating 4-minute sub-exposures..."))
+                emit(CaptureProgress(CaptureState.EXPOSURE_STACKING, 0.60f, "Processing..."))
                 delay(250)
-                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.90f, "Dark-sky noise subtraction & nebula boost..."))
+                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.90f, "Finishing..."))
                 delay(200)
             }
             CameraMode.PORTRAIT -> {
-                emit(CaptureProgress(CaptureState.ALIGNING_FRAMES, 0.30f, "Estimating neural depth map..."))
+                emit(CaptureProgress(CaptureState.ALIGNING_FRAMES, 0.30f, "Preparing capture..."))
                 delay(150)
-                emit(CaptureProgress(CaptureState.EXPOSURE_STACKING, 0.60f, "Synthesizing f/1.4 aperture bokeh..."))
+                emit(CaptureProgress(CaptureState.EXPOSURE_STACKING, 0.60f, "Processing..."))
                 delay(180)
-                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.85f, "Refining edge strands & skin tones..."))
+                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.85f, "Finishing..."))
                 delay(120)
             }
             CameraMode.PRO -> {
@@ -54,21 +56,21 @@ object ComputationalPipeline {
                 val shutterText = proSettings.formatShutterSpeed()
                 emit(CaptureProgress(CaptureState.EXPOSURE_STACKING, 0.50f, "Manual sensor readout ($isoText, $shutterText)..."))
                 delay(150)
-                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.80f, "Applying RAW Bayer demosaicing & 3D LUT..."))
+                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.80f, "Finishing..."))
                 delay(120)
             }
             CameraMode.LONG_EXPOSURE -> {
-                emit(CaptureProgress(CaptureState.ALIGNING_FRAMES, 0.30f, "Tracking motion vectors for light trails..."))
+                emit(CaptureProgress(CaptureState.ALIGNING_FRAMES, 0.30f, "Preparing long exposure..."))
                 delay(200)
-                emit(CaptureProgress(CaptureState.EXPOSURE_STACKING, 0.70f, "Accumulating temporal light streaks..."))
+                emit(CaptureProgress(CaptureState.EXPOSURE_STACKING, 0.70f, "Processing..."))
                 delay(200)
-                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.90f, "Smoothing motion blur & stabilizing background..."))
+                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.90f, "Finishing..."))
                 delay(150)
             }
             else -> {
-                emit(CaptureProgress(CaptureState.EXPOSURE_STACKING, 0.50f, "HDR+ bracketed exposure fusion..."))
+                emit(CaptureProgress(CaptureState.EXPOSURE_STACKING, 0.50f, "Processing..."))
                 delay(100)
-                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.80f, "Tone mapping & Pixel Real Tone processing..."))
+                emit(CaptureProgress(CaptureState.DENOISING_REALTONE, 0.80f, "Finishing..."))
                 delay(100)
             }
         }
@@ -79,16 +81,15 @@ object ComputationalPipeline {
         emit(CaptureProgress(CaptureState.COMPLETE, 1.0f, "Saved to Gallery"))
     }
 
-    /**
-     * Builds comprehensive EXIF and camera metadata.
-     */
     fun generateExif(
         mode: CameraMode,
         lens: LensFacing,
         zoom: Float,
         proSettings: ProSettings,
         captureFormat: CaptureFormat,
-        ultraHdr: Boolean
+        ultraHdr: Boolean,
+        capturedAtEpochMillis: Long,
+        location: GeoLocation? = null
     ): ExifInfo {
         val focalLength = when (lens) {
             LensFacing.BACK_ULTRA_WIDE -> "13mm (f/2.2)"
@@ -131,15 +132,42 @@ object ComputationalPipeline {
             whiteBalance = proSettings.formatWb(),
             format = formatDesc,
             resolution = resolutionDesc,
-            timestamp = "2026-08-29 13:30:15",
-            location = "Googleplex, Mountain View, CA (37.4220° N, 122.0841° W)"
+            timestamp = formatTimestamp(capturedAtEpochMillis),
+            location = location?.let { formatLocation(it) }
         )
     }
 
-    /**
-     * Formats the Pixel-style Watermark string.
-     * Example: "Shot on Pixel | 24mm f/1.68 1/250s ISO 100"
-     */
+    fun formatTimestamp(epochMillis: Long): String {
+        val local = Instant.fromEpochMilliseconds(epochMillis)
+            .toLocalDateTime(TimeZone.currentSystemDefault())
+        return buildString {
+            append(local.year.toString().padStart(4, '0'))
+            append('-')
+            append(local.monthNumber.toString().padStart(2, '0'))
+            append('-')
+            append(local.dayOfMonth.toString().padStart(2, '0'))
+            append(' ')
+            append(local.hour.toString().padStart(2, '0'))
+            append(':')
+            append(local.minute.toString().padStart(2, '0'))
+            append(':')
+            append(local.second.toString().padStart(2, '0'))
+        }
+    }
+
+    fun formatLocation(location: GeoLocation): String {
+        val lat = formatCoordinate(location.latitude, positive = "N", negative = "S")
+        val lon = formatCoordinate(location.longitude, positive = "E", negative = "W")
+        return "$lat, $lon"
+    }
+
+    private fun formatCoordinate(value: Double, positive: String, negative: String): String {
+        val hemisphere = if (value >= 0) positive else negative
+        val magnitude = abs(value)
+        val rounded = (magnitude * 10000).roundToInt() / 10000.0
+        return "$rounded° $hemisphere"
+    }
+
     fun formatPixelWatermark(exif: ExifInfo): String {
         return "Shot on Pixel | ${exif.lensFocalLength} ${exif.shutterSpeed} ISO ${exif.iso}"
     }

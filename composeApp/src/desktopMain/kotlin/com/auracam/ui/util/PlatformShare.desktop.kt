@@ -4,6 +4,4 @@ import androidx.compose.runtime.Composable
 import com.auracam.camera.domain.CapturedMedia
 
 @Composable
-actual fun rememberPlatformShare(): (CapturedMedia) -> Unit {
-    return { _ -> }
-}
+actual fun rememberPlatformShare(): ((CapturedMedia) -> Unit)? = null

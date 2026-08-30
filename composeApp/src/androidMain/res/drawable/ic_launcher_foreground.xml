@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer Camera Housing Disc -->
+    <path
+        android:fillColor="#242830"
+        android:pathData="M54,54m-27,0a27,27 0 1,0 54,0a27,27 0 1,0 -54,0" />
+
+    <!-- Outer Bezel Ring -->
+    <path
+        android:fillColor="#1A1D24"
+        android:pathData="M54,54m-24,0a24,24 0 1,0 48,0a24,24 0 1,0 -48,0" />
+
+    <!-- Google Pixel Yellow Aperture Ring -->
+    <path
+        android:fillColor="#FFDB58"
+        android:pathData="M54,54m-20,0a20,20 0 1,0 40,0a20,20 0 1,0 -40,0" />
+
+    <!-- Inner Dark Lens Well -->
+    <path
+        android:fillColor="#0D0E12"
+        android:pathData="M54,54m-16.5,0a16.5,16.5 0 1,0 33,0a16.5,16.5 0 1,0 -33,0" />
+
+    <!-- Iridescent Optical Element (Deep Navy/Cyan Glass) -->
+    <path
+        android:fillColor="#1E3A5F"
+        android:pathData="M54,54m-12,0a12,12 0 1,0 24,0a12,12 0 1,0 -24,0" />
+
+    <!-- Lens Flare Reflection Highlight (Google Blue) -->
+    <path
+        android:fillColor="#8AB4F8"
+        android:pathData="M60,46a7,7 0 0,0 -8,-2a8,8 0 0,1 10,6z" />
+
+    <!-- Center Pupil Aperture -->
+    <path
+        android:fillColor="#06080B"
+        android:pathData="M54,54m-5.5,0a5.5,5.5 0 1,0 11,0a5.5,5.5 0 1,0 -11,0" />
+
+    <!-- Specular Highlight Dot -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M52,51m-1.5,0a1.5,1.5 0 1,0 3,0a1.5,1.5 0 1,0 -3,0" />
+
+    <!-- Pixel Accent Flash Sensor (Top-Right) -->
+    <path
+        android:fillColor="#8AB4F8"
+        android:pathData="M68,36 A3,3 0 0,1 74,38 L72,42 A3,3 0 0,1 66,40 Z" />
+
+</vector>

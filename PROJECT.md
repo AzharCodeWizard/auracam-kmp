@@ -43,6 +43,19 @@ AuraCam KMP is a Kotlin Multiplatform camera application targeting Android (via 
 - `vibrateModeChange()`: mode switch feedback.
 - `vibrateLock()`: AE/AF lock confirmation.
 
+## Production Hardening (M5)
+| # | Area | Change |
+|---|------|--------|
+| 16 | Runtime permissions | `CameraPermissionState` expect/actual, permission-gated viewfinder, rationale + deep-link-to-settings screen, re-check on `ON_RESUME` |
+| 17 | Engine lifecycle | `CameraEngine.release()`; executors, sensors, orientation listener and CameraX bindings torn down on dispose |
+| 18 | Real sensors | Android leveler driven by `TYPE_ROTATION_VECTOR` with accelerometer fallback and low-pass smoothing; sine-wave simulation disabled on hardware platforms |
+| 19 | Use-case binding | Per-mode `bindToLifecycle` sets (video / analysis only in Pro) to avoid unsupported surface combinations; rebind skipped when the set is unchanged |
+| 20 | Capture correctness | Device zoom range from `ZoomState`, `targetRotation` from `OrientationEventListener`, capture re-entrancy guard, `RECORD_AUDIO` checked before `withAudioEnabled()` |
+| 21 | Honest metadata | EXIF timestamp from the real capture instant; GPS from `LocationManager` only when geotagging is enabled and permitted (off by default) |
+| 22 | Persisted settings | `PersistedSettingsStore` in `shared` with SharedPreferences / file / NSUserDefaults backends |
+| 23 | Release readiness | Keystore-or-env signing config, `verifyReleaseSigning` task, R8 rules for kotlinx.serialization and CameraX, adaptive launcher icon, backup rules, `VIBRATE` permission |
+| 24 | CI & lint | GitHub Actions (tests, lint, debug+release APK, Apple compile); `lint { abortOnError = true }` |
+
 ## Code Layout
 - `shared/src/commonMain/kotlin/com/auracam/`:
   - `domain/`: `CameraEngine.kt`, `SoundAndHaptics.kt`, `PlatformShare.kt`

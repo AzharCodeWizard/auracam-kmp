@@ -10,9 +10,9 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 abstract class BaseCameraEngine(
-    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    protected val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob()),
+    private val simulateSensors: Boolean = true
 ) : CameraEngine {
-
     protected val _cameraMode = MutableStateFlow(CameraMode.PHOTO)
     override val cameraMode: StateFlow<CameraMode> = _cameraMode.asStateFlow()
 
@@ -21,6 +21,9 @@ abstract class BaseCameraEngine(
 
     protected val _zoomRatio = MutableStateFlow(1.0f)
     override val zoomRatio: StateFlow<Float> = _zoomRatio.asStateFlow()
+
+    protected val _availableZoomPresets = MutableStateFlow(listOf(0.5f, 1.0f, 2.0f, 5.0f, 10.0f))
+    override val availableZoomPresets: StateFlow<List<Float>> = _availableZoomPresets.asStateFlow()
 
     protected val _flashMode = MutableStateFlow(FlashMode.OFF)
     override val flashMode: StateFlow<FlashMode> = _flashMode.asStateFlow()
@@ -42,6 +45,18 @@ abstract class BaseCameraEngine(
 
     protected val _proSettings = MutableStateFlow(ProSettings())
     override val proSettings: StateFlow<ProSettings> = _proSettings.asStateFlow()
+
+    protected val _manualControlsSupported = MutableStateFlow(true)
+    override val manualControlsSupported: StateFlow<Boolean> = _manualControlsSupported.asStateFlow()
+
+    protected val _videoStabilizationSupported = MutableStateFlow(false)
+    override val videoStabilizationSupported: StateFlow<Boolean> = _videoStabilizationSupported.asStateFlow()
+
+    protected val _videoStabilizationEnabled = MutableStateFlow(true)
+    override val videoStabilizationEnabled: StateFlow<Boolean> = _videoStabilizationEnabled.asStateFlow()
+
+    protected val _exposureMask = MutableStateFlow(ExposureMask())
+    override val exposureMask: StateFlow<ExposureMask> = _exposureMask.asStateFlow()
 
     protected val _liveHistogram = MutableStateFlow(HistogramData())
     override val liveHistogram: StateFlow<HistogramData> = _liveHistogram.asStateFlow()
@@ -67,6 +82,9 @@ abstract class BaseCameraEngine(
     protected val _ultraHdrEnabled = MutableStateFlow(true)
     override val ultraHdrEnabled: StateFlow<Boolean> = _ultraHdrEnabled.asStateFlow()
 
+    protected val _geotaggingEnabled = MutableStateFlow(false)
+    override val geotaggingEnabled: StateFlow<Boolean> = _geotaggingEnabled.asStateFlow()
+
     protected val _recentMedia = MutableStateFlow<CapturedMedia?>(null)
     override val recentMedia: StateFlow<CapturedMedia?> = _recentMedia.asStateFlow()
 
@@ -77,7 +95,7 @@ abstract class BaseCameraEngine(
     private var sensorSimulationJob: Job? = null
 
     init {
-        startSensorSimulation()
+        if (simulateSensors) startSensorSimulation()
     }
 
     private fun startSensorSimulation() {
@@ -85,7 +103,6 @@ abstract class BaseCameraEngine(
             var tick = 0f
             while (isActive) {
                 tick += 0.05f
-                // Simulate real-time dynamic RGB histogram based on current EV, ISO, and scene lighting
                 val pro = _proSettings.value
                 val evShift = pro.evBias * 3
                 val rBins = List(32) { i ->
@@ -109,7 +126,6 @@ abstract class BaseCameraEngine(
 
                 _liveHistogram.value = HistogramData(rBins, gBins, bBins, lumBins)
 
-                // Simulate subtle gyroscope horizon leveler
                 val roll = sin(tick * 0.3f) * 1.8f
                 val isLevel = kotlin.math.abs(roll) < 0.6f
                 _horizonLeveler.value = HorizonLeveler(
@@ -188,8 +204,27 @@ abstract class BaseCameraEngine(
         _ultraHdrEnabled.value = enabled
     }
 
+    override fun setGeotaggingEnabled(enabled: Boolean) {
+        _geotaggingEnabled.value = enabled
+    }
+
+    override fun setVideoStabilizationEnabled(enabled: Boolean) {
+        _videoStabilizationEnabled.value = enabled
+    }
+
+    override suspend fun refreshGallery() = Unit
+
+    override suspend fun loadExif(media: CapturedMedia): CapturedMedia = media
+
+    override suspend fun deleteMedia(media: CapturedMedia): Boolean {
+        val remaining = _galleryList.value.filterNot { it.id == media.id }
+        val changed = remaining.size != _galleryList.value.size
+        _galleryList.value = remaining
+        if (_recentMedia.value?.id == media.id) _recentMedia.value = remaining.firstOrNull()
+        return changed
+    }
+
     override suspend fun capturePhoto(): CapturedMedia {
-        // Handle Timer countdown if set
         val timerSec = _timerDuration.value.seconds
         if (timerSec > 0) {
             for (s in timerSec downTo 1) {
@@ -198,7 +233,6 @@ abstract class BaseCameraEngine(
             }
         }
 
-        // Run Computational Photography pipeline
         ComputationalPipeline.processCapture(
             mode = _cameraMode.value,
             lens = _currentLens.value,
@@ -212,16 +246,16 @@ abstract class BaseCameraEngine(
             _captureProgress.value = progress
         }
 
+        val timestamp = Clock.System.now().toEpochMilliseconds()
         val exif = ComputationalPipeline.generateExif(
             mode = _cameraMode.value,
             lens = _currentLens.value,
             zoom = _zoomRatio.value,
             proSettings = _proSettings.value,
             captureFormat = _captureFormat.value,
-            ultraHdr = _ultraHdrEnabled.value
+            ultraHdr = _ultraHdrEnabled.value,
+            capturedAtEpochMillis = timestamp
         )
-
-        val timestamp = Clock.System.now().toEpochMilliseconds()
         val media = CapturedMedia(
             id = "IMG_${timestamp}",
             uri = "content://media/external/images/media/${timestamp}",
@@ -241,6 +275,16 @@ abstract class BaseCameraEngine(
         delay(500)
         _captureProgress.value = CaptureProgress(CaptureState.IDLE, 0f, "")
         return media
+    }
+
+    override fun release() {
+        recordingJob?.cancel()
+        recordingJob = null
+        sensorSimulationJob?.cancel()
+        sensorSimulationJob = null
+        _isRecording.value = false
+        _recordingDurationSeconds.value = 0
+        coroutineScope.cancel()
     }
 
     override suspend fun toggleVideoRecording() {

@@ -508,7 +508,15 @@ fun ShutterControlRow(
                 ) { onGalleryClick() },
             contentAlignment = Alignment.Center
         ) {
-            if (recentMedia != null) {
+            val thumbnail = recentMedia?.let { com.auracam.ui.util.rememberMediaImage(it.uri, maxDimension = 256) }
+            if (thumbnail != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = thumbnail,
+                    contentDescription = "Open gallery",
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape)
+                )
+            } else if (recentMedia != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

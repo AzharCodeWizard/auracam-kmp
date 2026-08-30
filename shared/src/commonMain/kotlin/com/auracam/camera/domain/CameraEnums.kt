@@ -3,16 +3,23 @@ package com.auracam.camera.domain
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class CameraMode(val displayName: String, val badgeText: String) {
-    NIGHT_SIGHT("Night Sight", "NIGHT"),
-    PORTRAIT("Portrait", "PORTRAIT"),
-    PHOTO("Photo", "PHOTO"),
-    VIDEO("Video", "VIDEO"),
-    CINEMATIC("Cinematic", "CINEMA"),
-    PRO("Pro / Expert", "PRO"),
-    ASTRO("Astrophotography", "ASTRO"),
-    LONG_EXPOSURE("Long Exposure", "LONG EXPO"),
-    PANORAMA("Panorama", "PANO")
+enum class CameraMode(
+    val displayName: String,
+    val badgeText: String,
+    val hasDedicatedPipeline: Boolean
+) {
+    NIGHT_SIGHT("Night Sight", "NIGHT", true),
+    PORTRAIT("Portrait", "PORTRAIT", false),
+    PHOTO("Photo", "PHOTO", true),
+    VIDEO("Video", "VIDEO", true),
+    CINEMATIC("Cinematic", "CINEMA", false),
+    PRO("Pro / Expert", "PRO", true),
+    ASTRO("Astrophotography", "ASTRO", false),
+    LONG_EXPOSURE("Long Exposure", "LONG EXPO", false),
+    PANORAMA("Panorama", "PANO", false);
+
+    val singleFrameNotice: String?
+        get() = if (hasDedicatedPipeline) null else "$displayName saves a single exposure in this build"
 }
 
 @Serializable
@@ -52,7 +59,10 @@ enum class CaptureFormat(val label: String, val extension: String) {
     JPEG("JPEG", "jpg"),
     RAW_DNG("RAW (DNG)", "dng"),
     RAW_PLUS_JPEG("RAW + JPEG", "dng+jpg"),
-    ULTRA_HDR("Ultra HDR", "jpg")
+    ULTRA_HDR("Ultra HDR", "jpg");
+
+    val isRaw: Boolean
+        get() = this == RAW_DNG || this == RAW_PLUS_JPEG
 }
 
 @Serializable
@@ -65,10 +75,10 @@ enum class GridType(val label: String) {
 
 @Serializable
 enum class ColorProfile(val label: String, val description: String) {
-    NATURAL("Natural", "Pixel True Color reproduction"),
-    VIBRANT("Vibrant", "Enhanced dynamic range and punchy tones"),
-    REAL_TONE("Real Tone", "Google Real Tone skin-tone accuracy"),
-    HIGH_CONTRAST_MONO("B&W Mono", "Deep blacks and crisp highlights"),
-    CINEMATIC_WARM("Cinematic", "Warm golden-hour cinema LUT"),
-    ASTRO_BOOST("Astro Boost", "Enhanced nebula and stellar contrast")
+    NATURAL("Natural", "No viewfinder tint"),
+    VIBRANT("Vibrant", "Viewfinder preview only, not saved"),
+    REAL_TONE("Real Tone", "Viewfinder preview only, not saved"),
+    HIGH_CONTRAST_MONO("B&W Mono", "Viewfinder preview only, not saved"),
+    CINEMATIC_WARM("Cinematic", "Viewfinder preview only, not saved"),
+    ASTRO_BOOST("Astro Boost", "Viewfinder preview only, not saved")
 }

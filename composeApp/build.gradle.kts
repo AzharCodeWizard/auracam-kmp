@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -9,6 +10,10 @@ plugins {
 }
 
 kotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
     androidTarget {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
@@ -34,7 +39,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(project(":shared"))
+            api(project(":shared"))
             
             implementation(compose.runtime)
             implementation(compose.foundation)
@@ -57,12 +62,14 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.lifecycle.viewmodel)
+            implementation(libs.androidx.lifecycle.runtime.compose)
             implementation(libs.androidx.camera.core)
             implementation(libs.androidx.camera.camera2)
             implementation(libs.androidx.camera.lifecycle)
             implementation(libs.androidx.camera.view)
             implementation(libs.androidx.camera.video)
             implementation(libs.androidx.exifinterface)
+            implementation(libs.androidx.profileinstaller)
         }
 
         val desktopMain by getting {
@@ -73,6 +80,19 @@ kotlin {
         }
     }
 }
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun releaseSigningValue(propertyKey: String, envKey: String): String? =
+    keystoreProperties.getProperty(propertyKey) ?: System.getenv(envKey)
+
+val releaseStoreFilePath = releaseSigningValue("storeFile", "AURACAM_KEYSTORE_FILE")
+val hasReleaseSigning = releaseStoreFilePath != null && file(releaseStoreFilePath).exists()
 
 android {
     namespace = "com.auracam.app"
@@ -92,6 +112,35 @@ android {
         compose = true
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFilePath!!)
+                storePassword = releaseSigningValue("storePassword", "AURACAM_KEYSTORE_PASSWORD")
+                keyAlias = releaseSigningValue("keyAlias", "AURACAM_KEY_ALIAS")
+                keyPassword = releaseSigningValue("keyPassword", "AURACAM_KEY_PASSWORD")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
+    }
+
+    lint {
+        warningsAsErrors = false
+        abortOnError = true
+        checkDependencies = true
+        disable += setOf(
+            "GradleDependency",
+            "AndroidGradlePluginVersion",
+            "ObsoleteLintCustomCheck",
+            "LockedOrientationActivity",
+            "DiscouragedApi"
+        )
+        sarifReport = true
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -106,17 +155,39 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug") // Ready for production keystore
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
         debug {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
         }
+    }
+
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+tasks.register("verifyReleaseSigning") {
+    group = "verification"
+    description = "Fails when the release build would fall back to the debug signing key."
+    doLast {
+        check(hasReleaseSigning) {
+            "No release keystore configured. Create keystore.properties (storeFile, storePassword, " +
+                "keyAlias, keyPassword) or set AURACAM_KEYSTORE_FILE, AURACAM_KEYSTORE_PASSWORD, " +
+                "AURACAM_KEY_ALIAS and AURACAM_KEY_PASSWORD."
+        }
     }
 }
 

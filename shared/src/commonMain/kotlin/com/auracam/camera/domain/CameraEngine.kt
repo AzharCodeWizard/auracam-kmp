@@ -6,6 +6,7 @@ interface CameraEngine {
     val cameraMode: StateFlow<CameraMode>
     val currentLens: StateFlow<LensFacing>
     val zoomRatio: StateFlow<Float>
+    val availableZoomPresets: StateFlow<List<Float>>
     val flashMode: StateFlow<FlashMode>
     val aspectRatio: StateFlow<AspectRatio>
     val colorProfile: StateFlow<ColorProfile>
@@ -13,6 +14,10 @@ interface CameraEngine {
     val timerDuration: StateFlow<TimerDuration>
     val gridType: StateFlow<GridType>
     val proSettings: StateFlow<ProSettings>
+    val manualControlsSupported: StateFlow<Boolean>
+    val videoStabilizationSupported: StateFlow<Boolean>
+    val videoStabilizationEnabled: StateFlow<Boolean>
+    val exposureMask: StateFlow<ExposureMask>
     val liveHistogram: StateFlow<HistogramData>
     val horizonLeveler: StateFlow<HorizonLeveler>
     val captureProgress: StateFlow<CaptureProgress>
@@ -21,6 +26,7 @@ interface CameraEngine {
     val focusPoint: StateFlow<FocusPoint?>
     val watermarkEnabled: StateFlow<Boolean>
     val ultraHdrEnabled: StateFlow<Boolean>
+    val geotaggingEnabled: StateFlow<Boolean>
     val recentMedia: StateFlow<CapturedMedia?>
     val galleryList: StateFlow<List<CapturedMedia>>
 
@@ -38,8 +44,15 @@ interface CameraEngine {
     fun clearFocusPoint()
     fun toggleWatermark(enabled: Boolean)
     fun toggleUltraHdr(enabled: Boolean)
+    fun setGeotaggingEnabled(enabled: Boolean)
+    fun setVideoStabilizationEnabled(enabled: Boolean)
+    suspend fun refreshGallery()
+    suspend fun loadExif(media: CapturedMedia): CapturedMedia
+    suspend fun deleteMedia(media: CapturedMedia): Boolean
     suspend fun capturePhoto(): CapturedMedia
     suspend fun toggleVideoRecording()
+
+    fun release()
 }
 
 expect class PlatformCameraEngine() : BaseCameraEngine

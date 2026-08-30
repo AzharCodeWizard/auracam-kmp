@@ -26,12 +26,11 @@ import com.auracam.ui.theme.*
 @Composable
 fun ZoomSelector(
     currentZoom: Float,
+    zoomPresets: List<Float>,
     onZoomSelected: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val zoomPresets = remember {
-        listOf(0.5f, 1.0f, 2.0f, 5.0f, 10.0f)
-    }
+    if (zoomPresets.isEmpty()) return
 
     Box(
         modifier = modifier
@@ -47,8 +46,10 @@ fun ZoomSelector(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val selectedPreset = zoomPresets.minByOrNull { kotlin.math.abs(currentZoom - it) }
+
             zoomPresets.forEach { preset ->
-                val isSelected = kotlin.math.abs(currentZoom - preset) < 0.15f
+                val isSelected = preset == selectedPreset
 
                 val scale = animateFloatAsState(
                     targetValue = if (isSelected) 1.08f else 0.95f,
@@ -67,9 +68,9 @@ fun ZoomSelector(
                     animationSpec = tween(150)
                 )
 
-                val label = when (preset) {
-                    0.5f -> ".5"
-                    1.0f -> "1x"
+                val label = when {
+                    preset < 1.0f -> ".5"
+                    preset == 1.0f -> "1x"
                     else -> "${preset.toInt()}"
                 }
 

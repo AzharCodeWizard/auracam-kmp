@@ -50,6 +50,15 @@ data class HistogramData(
     val luminanceBins: List<Int> = List(32) { 0 }
 )
 
+class ExposureMask(
+    val width: Int = 0,
+    val height: Int = 0,
+    val peaking: ByteArray = ByteArray(0),
+    val zebra: ByteArray = ByteArray(0)
+) {
+    val isEmpty: Boolean get() = width == 0 || height == 0
+}
+
 @Serializable
 data class HorizonLeveler(
     val rollDegrees: Float = 0f,
@@ -75,8 +84,8 @@ data class ExifInfo(
     val whiteBalance: String = "5500K",
     val format: String = "Ultra HDR DNG",
     val resolution: String = "50 MP (8192 × 6144)",
-    val timestamp: String = "2026-08-29 13:30:00",
-    val location: String? = "Latitude 37.4220° N, Longitude 122.0841° W"
+    val timestamp: String = "",
+    val location: String? = null
 )
 
 @Serializable
