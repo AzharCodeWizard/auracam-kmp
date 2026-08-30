@@ -47,6 +47,8 @@ fun FloatingTopBar(
     flashMode: FlashMode,
     captureFormat: CaptureFormat,
     colorProfile: ColorProfile,
+    photoResolution: PhotoResolution = PhotoResolution.STANDARD_12MP,
+    videoResolution: VideoResolution = VideoResolution.FHD_1080P_30,
     ultraHdr: Boolean,
     timerDuration: TimerDuration,
     onOpenQuickSettings: () -> Unit,
@@ -55,6 +57,9 @@ fun FloatingTopBar(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isVideoMode = mode == CameraMode.VIDEO || mode == CameraMode.CINEMATIC || mode == CameraMode.DUAL_VLOG
+    val resolutionBadge = if (isVideoMode) videoResolution.shortBadge else photoResolution.shortBadge
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -102,6 +107,15 @@ fun FloatingTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // Resolution Badge (Clickable to open resolution switcher)
+            PixelGlassBadge(
+                text = resolutionBadge,
+                textColor = PixelTextWhite,
+                containerColor = PixelGlassPill,
+                borderColor = PixelGlassBorderSubtle,
+                onClick = onOpenQuickSettings
+            )
+
             // Interactive Color Profile / Filter Badge
             PixelGlassBadge(
                 text = colorProfile.label.uppercase(),

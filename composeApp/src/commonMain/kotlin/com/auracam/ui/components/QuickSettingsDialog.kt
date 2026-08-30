@@ -12,7 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -20,7 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auracam.camera.domain.*
@@ -28,7 +30,10 @@ import com.auracam.ui.theme.*
 
 @Composable
 fun QuickSettingsDialog(
+    mode: CameraMode,
     aspectRatio: AspectRatio,
+    photoResolution: PhotoResolution,
+    videoResolution: VideoResolution,
     timerDuration: TimerDuration,
     flashMode: FlashMode,
     captureFormat: CaptureFormat,
@@ -37,6 +42,8 @@ fun QuickSettingsDialog(
     ultraHdr: Boolean,
     watermarkEnabled: Boolean,
     onAspectRatioChange: (AspectRatio) -> Unit,
+    onPhotoResolutionChange: (PhotoResolution) -> Unit,
+    onVideoResolutionChange: (VideoResolution) -> Unit,
     onTimerChange: (TimerDuration) -> Unit,
     onFlashChange: (FlashMode) -> Unit,
     onCaptureFormatChange: (CaptureFormat) -> Unit,
@@ -47,10 +54,12 @@ fun QuickSettingsDialog(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isVideoMode = mode == CameraMode.VIDEO || mode == CameraMode.CINEMATIC || mode == CameraMode.DUAL_VLOG
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp)
+            .padding(top = 58.dp, start = 12.dp, end = 12.dp, bottom = 16.dp)
             .pixelGlass(
                 shape = RoundedCornerShape(28.dp),
                 backgroundColor = PixelGlassScrimHeavy,
@@ -60,9 +69,9 @@ fun QuickSettingsDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp)
+                .padding(18.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Header
             Row(
@@ -70,17 +79,28 @@ fun QuickSettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Quick Controls",
-                    style = AuraCamTheme.typography.titleLarge,
-                    color = PixelTextWhite
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        tint = PixelYellowAccent,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = "Quick Controls",
+                        style = AuraCamTheme.typography.titleLarge,
+                        color = PixelTextWhite
+                    )
+                }
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(PixelSurfaceContainerHigh)
+                        .background(Color(0x33FFFFFF))
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
@@ -91,72 +111,92 @@ fun QuickSettingsDialog(
                 }
             }
 
-            // Aspect Ratio
-            SectionLabel("Aspect Ratio")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+            // Photo Resolution (Featured prominently)
+            SectionHeader(title = "Photo Resolution", icon = Icons.Default.CameraAlt)
+            LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                AspectRatio.values().forEach { ratio ->
+                items(PhotoResolution.values()) { res ->
+                    PillButton(
+                        text = res.label,
+                        isSelected = res == photoResolution,
+                        onClick = { onPhotoResolutionChange(res) }
+                    )
+                }
+            }
+
+            // Video Resolution (Featured prominently)
+            SectionHeader(title = "Video Resolution & FPS", icon = Icons.Default.Videocam)
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(VideoResolution.values()) { res ->
+                    PillButton(
+                        text = res.label,
+                        isSelected = res == videoResolution,
+                        onClick = { onVideoResolutionChange(res) }
+                    )
+                }
+            }
+
+            // Aspect Ratio
+            SectionHeader(title = "Aspect Ratio", icon = Icons.Default.AspectRatio)
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(AspectRatio.values()) { ratio ->
                     PillButton(
                         text = ratio.label,
                         isSelected = ratio == aspectRatio,
-                        onClick = { onAspectRatioChange(ratio) },
-                        modifier = Modifier.weight(1f)
+                        onClick = { onAspectRatioChange(ratio) }
+                    )
+                }
+            }
+
+            // Capture Format (RAW / JPEG / Ultra HDR)
+            SectionHeader(title = "Capture Format", icon = Icons.Default.HighQuality)
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(CaptureFormat.values()) { format ->
+                    PillButton(
+                        text = format.label,
+                        isSelected = format == captureFormat,
+                        onClick = { onCaptureFormatChange(format) }
                     )
                 }
             }
 
             // Flash Mode
-            SectionLabel("Flash")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+            SectionHeader(title = "Flash Mode", icon = Icons.Default.FlashOn)
+            LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FlashMode.values().forEach { flash ->
+                items(FlashMode.values()) { flash ->
                     PillButton(
                         text = flash.title,
                         isSelected = flash == flashMode,
-                        onClick = { onFlashChange(flash) },
-                        modifier = Modifier.weight(1f)
+                        onClick = { onFlashChange(flash) }
                     )
                 }
             }
 
             // Timer
-            SectionLabel("Timer")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+            SectionHeader(title = "Timer Delay", icon = Icons.Default.Timer)
+            LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                TimerDuration.values().forEach { timer ->
+                items(TimerDuration.values()) { timer ->
                     PillButton(
                         text = timer.label,
                         isSelected = timer == timerDuration,
-                        onClick = { onTimerChange(timer) },
-                        modifier = Modifier.weight(1f)
+                        onClick = { onTimerChange(timer) }
                     )
                 }
             }
 
-            // Format (RAW / JPEG / Ultra HDR)
-            SectionLabel("Capture Format")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                CaptureFormat.values().forEach { format ->
-                    PillButton(
-                        text = format.label,
-                        isSelected = format == captureFormat,
-                        onClick = { onCaptureFormatChange(format) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-
-            // Color Profile
-            SectionLabel("Pixel Color Science & LUT")
+            // Color Profile & Tone LUTs
+            SectionHeader(title = "Color Science & Tone LUT", icon = Icons.Default.AutoFixHigh)
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -169,18 +209,16 @@ fun QuickSettingsDialog(
                 }
             }
 
-            // Grid Type
-            SectionLabel("Viewfinder Grid")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+            // Viewfinder Grid
+            SectionHeader(title = "Framing Grid", icon = Icons.Default.GridOn)
+            LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                GridType.values().forEach { grid ->
+                items(GridType.values()) { grid ->
                     PillButton(
                         text = grid.label,
                         isSelected = grid == gridType,
-                        onClick = { onGridChange(grid) },
-                        modifier = Modifier.weight(1f)
+                        onClick = { onGridChange(grid) }
                     )
                 }
             }
@@ -193,11 +231,12 @@ fun QuickSettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Ultra HDR Processing",
-                        style = AuraCamTheme.typography.bodyLarge,
-                        color = PixelTextWhite
+                        style = AuraCamTheme.typography.bodyMedium,
+                        color = PixelTextWhite,
+                        fontWeight = FontWeight.SemiBold
                     )
                     Text(
                         text = "Retains 10-bit highlight luminance",
@@ -220,11 +259,12 @@ fun QuickSettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Pixel Device Watermark",
-                        style = AuraCamTheme.typography.bodyLarge,
-                        color = PixelTextWhite
+                        style = AuraCamTheme.typography.bodyMedium,
+                        color = PixelTextWhite,
+                        fontWeight = FontWeight.SemiBold
                     )
                     Text(
                         text = "Add EXIF specs badge to photos",
@@ -246,12 +286,25 @@ fun QuickSettingsDialog(
 }
 
 @Composable
-private fun SectionLabel(title: String) {
-    Text(
-        text = title,
-        style = AuraCamTheme.cameraTypography.badgeSmall,
-        color = PixelTextSecondary
-    )
+private fun SectionHeader(title: String, icon: ImageVector) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.padding(top = 4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = PixelYellowAccent,
+            modifier = Modifier.size(15.dp)
+        )
+        Text(
+            text = title,
+            style = AuraCamTheme.cameraTypography.badgeSmall,
+            color = PixelTextSecondary,
+            letterSpacing = 0.5.sp
+        )
+    }
 }
 
 @Composable
@@ -263,24 +316,28 @@ private fun PillButton(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (isSelected) PixelYellowAccent else PixelSurfaceContainerHigh)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (isSelected) PixelYellowAccent else Color(0x33FFFFFF))
             .border(
-                1.dp,
-                if (isSelected) PixelYellowAccent else PixelGlassBorderSubtle,
-                RoundedCornerShape(16.dp)
+                width = if (isSelected) 1.5.dp else 0.75.dp,
+                color = if (isSelected) PixelYellowAccent else Color(0x22FFFFFF),
+                shape = RoundedCornerShape(14.dp)
             )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) { onClick() }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
             color = if (isSelected) PixelPitchBlack else PixelTextWhite,
-            style = if (isSelected) AuraCamTheme.cameraTypography.pillLabelActive else AuraCamTheme.cameraTypography.pillLabel
+            fontSize = 12.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip
         )
     }
 }

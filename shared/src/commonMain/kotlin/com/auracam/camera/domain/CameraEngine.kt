@@ -11,6 +11,8 @@ interface CameraEngine {
     val aspectRatio: StateFlow<AspectRatio>
     val colorProfile: StateFlow<ColorProfile>
     val captureFormat: StateFlow<CaptureFormat>
+    val photoResolution: StateFlow<PhotoResolution>
+    val videoResolution: StateFlow<VideoResolution>
     val timerDuration: StateFlow<TimerDuration>
     val gridType: StateFlow<GridType>
     val proSettings: StateFlow<ProSettings>
@@ -37,6 +39,8 @@ interface CameraEngine {
     fun setAspectRatio(ratio: AspectRatio)
     fun setColorProfile(profile: ColorProfile)
     fun setCaptureFormat(format: CaptureFormat)
+    fun setPhotoResolution(resolution: PhotoResolution)
+    fun setVideoResolution(resolution: VideoResolution)
     fun setTimer(timer: TimerDuration)
     fun setGrid(grid: GridType)
     fun updateProSettings(transform: (ProSettings) -> ProSettings)

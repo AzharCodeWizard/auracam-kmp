@@ -37,6 +37,12 @@ abstract class BaseCameraEngine(
     protected val _captureFormat = MutableStateFlow(CaptureFormat.JPEG)
     override val captureFormat: StateFlow<CaptureFormat> = _captureFormat.asStateFlow()
 
+    protected val _photoResolution = MutableStateFlow(PhotoResolution.STANDARD_12MP)
+    override val photoResolution: StateFlow<PhotoResolution> = _photoResolution.asStateFlow()
+
+    protected val _videoResolution = MutableStateFlow(VideoResolution.FHD_1080P_30)
+    override val videoResolution: StateFlow<VideoResolution> = _videoResolution.asStateFlow()
+
     protected val _timerDuration = MutableStateFlow(TimerDuration.OFF)
     override val timerDuration: StateFlow<TimerDuration> = _timerDuration.asStateFlow()
 
@@ -180,6 +186,14 @@ abstract class BaseCameraEngine(
 
     override fun setCaptureFormat(format: CaptureFormat) {
         _captureFormat.value = format
+    }
+
+    override fun setPhotoResolution(resolution: PhotoResolution) {
+        _photoResolution.value = resolution
+    }
+
+    override fun setVideoResolution(resolution: VideoResolution) {
+        _videoResolution.value = resolution
     }
 
     override fun setTimer(timer: TimerDuration) {

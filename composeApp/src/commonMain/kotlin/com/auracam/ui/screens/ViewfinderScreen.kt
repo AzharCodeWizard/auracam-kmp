@@ -59,6 +59,8 @@ fun ViewfinderScreen(
     val focusPoint by engine.focusPoint.collectAsState()
     val watermarkEnabled by engine.watermarkEnabled.collectAsState()
     val ultraHdrEnabled by engine.ultraHdrEnabled.collectAsState()
+    val photoResolution by engine.photoResolution.collectAsState()
+    val videoResolution by engine.videoResolution.collectAsState()
     val recentMedia by engine.recentMedia.collectAsState()
     val galleryList by engine.galleryList.collectAsState()
 
@@ -81,6 +83,8 @@ fun ViewfinderScreen(
                 flashMode = flashMode,
                 captureFormat = captureFormat,
                 colorProfile = colorProfile,
+                photoResolution = photoResolution,
+                videoResolution = videoResolution,
                 ultraHdr = ultraHdrEnabled,
                 timerDuration = timerDuration,
                 onOpenQuickSettings = {
@@ -388,7 +392,10 @@ fun ViewfinderScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             QuickSettingsDialog(
+                mode = cameraMode,
                 aspectRatio = aspectRatio,
+                photoResolution = photoResolution,
+                videoResolution = videoResolution,
                 timerDuration = timerDuration,
                 flashMode = flashMode,
                 captureFormat = captureFormat,
@@ -398,6 +405,14 @@ fun ViewfinderScreen(
                 watermarkEnabled = watermarkEnabled,
                 onAspectRatioChange = {
                     engine.setAspectRatio(it)
+                    soundAndHaptics.vibrateSnap()
+                },
+                onPhotoResolutionChange = {
+                    engine.setPhotoResolution(it)
+                    soundAndHaptics.vibrateSnap()
+                },
+                onVideoResolutionChange = {
+                    engine.setVideoResolution(it)
                     soundAndHaptics.vibrateSnap()
                 },
                 onTimerChange = {

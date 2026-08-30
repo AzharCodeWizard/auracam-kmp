@@ -88,6 +88,34 @@ enum class ColorProfile(val label: String, val description: String) {
 }
 
 @Serializable
+enum class PhotoResolution(
+    val label: String,
+    val shortBadge: String,
+    val description: String,
+    val width: Int,
+    val height: Int
+) {
+    HIGH_50MP("50MP (Full)", "50MP", "8160 x 6120 • Full Sensor Detail", 8160, 6120),
+    STANDARD_12MP("12MP (Quad)", "12MP", "4080 x 3060 • 4-in-1 Pixel Binned", 4080, 3060),
+    SAVER_8MP("8MP (Saver)", "8MP", "3264 x 2448 • Fast Storage Saver", 3264, 2448)
+}
+
+@Serializable
+enum class VideoResolution(
+    val label: String,
+    val shortBadge: String,
+    val fps: Int,
+    val width: Int,
+    val height: Int
+) {
+    UHD_4K_60("4K 60fps", "4K 60", 60, 3840, 2160),
+    UHD_4K_30("4K 30fps", "4K 30", 30, 3840, 2160),
+    FHD_1080P_60("1080p 60fps", "1080p 60", 60, 1920, 1080),
+    FHD_1080P_30("1080p 30fps", "1080p 30", 30, 1920, 1080),
+    HD_720P_30("720p 30fps", "720p", 30, 1280, 720)
+}
+
+@Serializable
 enum class DualVlogLayout(val label: String) {
     PIP_RECT("PiP Rect"),
     PIP_CIRCLE("PiP Circle"),
