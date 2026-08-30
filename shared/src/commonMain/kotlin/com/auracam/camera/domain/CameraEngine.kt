@@ -13,6 +13,8 @@ interface CameraEngine {
     val captureFormat: StateFlow<CaptureFormat>
     val photoResolution: StateFlow<PhotoResolution>
     val videoResolution: StateFlow<VideoResolution>
+    val slowMotionSpeed: StateFlow<SlowMotionSpeed>
+    val timelapseInterval: StateFlow<TimelapseInterval>
     val timerDuration: StateFlow<TimerDuration>
     val gridType: StateFlow<GridType>
     val proSettings: StateFlow<ProSettings>
@@ -41,6 +43,8 @@ interface CameraEngine {
     fun setCaptureFormat(format: CaptureFormat)
     fun setPhotoResolution(resolution: PhotoResolution)
     fun setVideoResolution(resolution: VideoResolution)
+    fun setSlowMotionSpeed(speed: SlowMotionSpeed)
+    fun setTimelapseInterval(interval: TimelapseInterval)
     fun setTimer(timer: TimerDuration)
     fun setGrid(grid: GridType)
     fun updateProSettings(transform: (ProSettings) -> ProSettings)

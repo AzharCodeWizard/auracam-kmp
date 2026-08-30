@@ -61,6 +61,9 @@ fun ViewfinderScreen(
     val ultraHdrEnabled by engine.ultraHdrEnabled.collectAsState()
     val photoResolution by engine.photoResolution.collectAsState()
     val videoResolution by engine.videoResolution.collectAsState()
+    val slowMotionSpeed by engine.slowMotionSpeed.collectAsState()
+    val timelapseInterval by engine.timelapseInterval.collectAsState()
+    val recordingDurationSeconds by engine.recordingDurationSeconds.collectAsState()
     val recentMedia by engine.recentMedia.collectAsState()
     val galleryList by engine.galleryList.collectAsState()
 
@@ -255,13 +258,37 @@ fun ViewfinderScreen(
                     )
                 }
 
-                // Video Recording Active HUD (Floating in Viewport)
-                RecordingHudLayer(
-                    engine = engine,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 12.dp)
-                )
+                // Video / Slow Motion / Timelapse Recording Active HUD
+                if (isRecording) {
+                    when (cameraMode) {
+                        CameraMode.SLOW_MOTION -> {
+                            SlowMotionRecordingHud(
+                                recordingDurationSeconds = recordingDurationSeconds,
+                                speed = slowMotionSpeed,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 12.dp)
+                            )
+                        }
+                        CameraMode.TIME_LAPSE -> {
+                            TimelapseRecordingHud(
+                                recordingDurationSeconds = recordingDurationSeconds,
+                                interval = timelapseInterval,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 12.dp)
+                            )
+                        }
+                        else -> {
+                            RecordingHudLayer(
+                                engine = engine,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 12.dp)
+                            )
+                        }
+                    }
+                }
 
                 val modeNotice = cameraMode.singleFrameNotice
                 if (modeNotice != null) {
@@ -330,6 +357,50 @@ fun ViewfinderScreen(
                     .background(PixelPitchBlack)
                     .padding(bottom = 8.dp)
             ) {
+                // Slow Motion Speed Selector Capsule
+                AnimatedVisibility(
+                    visible = cameraMode == CameraMode.SLOW_MOTION,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        SlowMotionSpeedSelector(
+                            currentSpeed = slowMotionSpeed,
+                            onSpeedSelected = {
+                                engine.setSlowMotionSpeed(it)
+                                soundAndHaptics.vibrateSnap()
+                            }
+                        )
+                    }
+                }
+
+                // Timelapse Interval Selector Capsule
+                AnimatedVisibility(
+                    visible = cameraMode == CameraMode.TIME_LAPSE,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        TimelapseIntervalSelector(
+                            currentInterval = timelapseInterval,
+                            onIntervalSelected = {
+                                engine.setTimelapseInterval(it)
+                                soundAndHaptics.vibrateSnap()
+                            }
+                        )
+                    }
+                }
+
                 // Pro Controls Sheet (when in Pro mode)
                 AnimatedVisibility(
                     visible = cameraMode == CameraMode.PRO,
@@ -355,13 +426,19 @@ fun ViewfinderScreen(
                 ShutterControlRow(
                     mode = cameraMode,
                     isRecording = isRecording,
-                    recordingDurationSeconds = 0,
+                    recordingDurationSeconds = recordingDurationSeconds,
                     captureProgress = captureProgress,
                     recentMedia = recentMedia,
                     onShutterClick = {
                         soundAndHaptics.vibrateSnap()
                         coroutineScope.launch {
-                            if (cameraMode == CameraMode.VIDEO || cameraMode == CameraMode.CINEMATIC) {
+                            val isVideoStyleMode = cameraMode == CameraMode.VIDEO ||
+                                    cameraMode == CameraMode.CINEMATIC ||
+                                    cameraMode == CameraMode.DUAL_VLOG ||
+                                    cameraMode == CameraMode.SLOW_MOTION ||
+                                    cameraMode == CameraMode.TIME_LAPSE
+
+                            if (isVideoStyleMode) {
                                 if (!isRecording) soundAndHaptics.playVideoStartSound() else soundAndHaptics.playVideoStopSound()
                                 runCatching { engine.toggleVideoRecording() }
                             } else {

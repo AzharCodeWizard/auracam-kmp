@@ -42,6 +42,8 @@ fun ModeCarousel(
             CameraMode.PORTRAIT,
             CameraMode.PHOTO,
             CameraMode.VIDEO,
+            CameraMode.SLOW_MOTION,
+            CameraMode.TIME_LAPSE,
             CameraMode.DUAL_VLOG,
             CameraMode.CINEMATIC,
             CameraMode.PRO,

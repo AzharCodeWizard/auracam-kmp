@@ -431,7 +431,7 @@ fun ExpressiveShutterButton(
     )
 
     // Inner core color transition
-    val isVideoMode = mode == CameraMode.VIDEO || mode == CameraMode.CINEMATIC
+    val isVideoMode = mode == CameraMode.VIDEO || mode == CameraMode.CINEMATIC || mode == CameraMode.DUAL_VLOG || mode == CameraMode.SLOW_MOTION || mode == CameraMode.TIME_LAPSE
     val coreColor by animateColorAsState(
         targetValue = when {
             isRecording || isVideoMode -> PixelRecordRed

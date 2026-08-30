@@ -43,6 +43,12 @@ abstract class BaseCameraEngine(
     protected val _videoResolution = MutableStateFlow(VideoResolution.FHD_1080P_30)
     override val videoResolution: StateFlow<VideoResolution> = _videoResolution.asStateFlow()
 
+    protected val _slowMotionSpeed = MutableStateFlow(SlowMotionSpeed.SPEED_1_4X)
+    override val slowMotionSpeed: StateFlow<SlowMotionSpeed> = _slowMotionSpeed.asStateFlow()
+
+    protected val _timelapseInterval = MutableStateFlow(TimelapseInterval.SPEED_10X)
+    override val timelapseInterval: StateFlow<TimelapseInterval> = _timelapseInterval.asStateFlow()
+
     protected val _timerDuration = MutableStateFlow(TimerDuration.OFF)
     override val timerDuration: StateFlow<TimerDuration> = _timerDuration.asStateFlow()
 
@@ -194,6 +200,14 @@ abstract class BaseCameraEngine(
 
     override fun setVideoResolution(resolution: VideoResolution) {
         _videoResolution.value = resolution
+    }
+
+    override fun setSlowMotionSpeed(speed: SlowMotionSpeed) {
+        _slowMotionSpeed.value = speed
+    }
+
+    override fun setTimelapseInterval(interval: TimelapseInterval) {
+        _timelapseInterval.value = interval
     }
 
     override fun setTimer(timer: TimerDuration) {

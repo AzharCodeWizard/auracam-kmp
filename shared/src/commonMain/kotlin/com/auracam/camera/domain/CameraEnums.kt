@@ -12,6 +12,8 @@ enum class CameraMode(
     PORTRAIT("Portrait", "PORTRAIT", false),
     PHOTO("Photo", "PHOTO", true),
     VIDEO("Video", "VIDEO", true),
+    SLOW_MOTION("Slow Motion", "SLOW MO", true),
+    TIME_LAPSE("Time Lapse", "TIMELAPSE", true),
     DUAL_VLOG("Dual Vlog", "DUAL", true),
     CINEMATIC("Cinematic", "CINEMA", false),
     PRO("Pro / Expert", "PRO", true),
@@ -113,6 +115,34 @@ enum class VideoResolution(
     FHD_1080P_60("1080p 60fps", "1080p 60", 60, 1920, 1080),
     FHD_1080P_30("1080p 30fps", "1080p 30", 30, 1920, 1080),
     HD_720P_30("720p 30fps", "720p", 30, 1280, 720)
+}
+
+@Serializable
+enum class SlowMotionSpeed(
+    val label: String,
+    val shortLabel: String,
+    val fps: Int,
+    val multiplier: Float,
+    val description: String
+) {
+    SPEED_1_4X("1/4x (120 fps)", "1/4x", 120, 0.25f, "Action & Sports • Standard HFR"),
+    SPEED_1_8X("1/8x (240 fps)", "1/8x", 240, 0.125f, "Water & Fast Motion • High HFR"),
+    SPEED_1_16X("1/16x (480 fps)", "1/16x", 480, 0.0625f, "Super Slow-Mo • Ultra High Precision")
+}
+
+@Serializable
+enum class TimelapseInterval(
+    val label: String,
+    val shortLabel: String,
+    val speedMultiplier: Int,
+    val intervalSeconds: Float,
+    val idealFor: String
+) {
+    SPEED_5X("5x (0.5s)", "5x", 5, 0.5f, "Walking & Street Scenes"),
+    SPEED_10X("10x (1s)", "10x", 10, 1.0f, "Traffic & Crowds"),
+    SPEED_30X("30x (3s)", "30x", 30, 3.0f, "Clouds & Sunsets"),
+    SPEED_120X("120x (12s)", "120x", 120, 12.0f, "Sun Tracking & Shadows"),
+    NIGHT_LAPSE("Night (30s)", "Night", 300, 30.0f, "Star Trails & Dark Sky")
 }
 
 @Serializable
