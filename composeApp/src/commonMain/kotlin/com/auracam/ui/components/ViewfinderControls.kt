@@ -12,6 +12,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,7 +41,8 @@ import kotlin.math.abs
 // =========================================================================
 
 /**
- * 1. Floating Top Action Bar: Glass pill container for Quick Settings, Badges, and Filter Drawer
+ * 1. Floating Top Glass Action Bar
+ * Quick settings trigger, flash toggle, resolution badge, filters, and app settings.
  */
 @Composable
 fun FloatingTopBar(
@@ -65,7 +68,7 @@ fun FloatingTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -81,15 +84,15 @@ fun FloatingTopBar(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) { onOpenQuickSettings() }
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Tune,
                 contentDescription = "Quick Settings",
                 tint = PixelYellowAccent,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(16.dp)
             )
             Text(
                 text = "Settings",
@@ -100,116 +103,122 @@ fun FloatingTopBar(
                 imageVector = Icons.Default.KeyboardArrowDown,
                 contentDescription = "Expand",
                 tint = PixelTextSecondary,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(15.dp)
             )
         }
 
         // Status Badges, Flash Toggle, Filter Wand & Settings Gear
-        Row(
+        LazyRow(
+            modifier = Modifier.weight(1f, fill = false),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+            contentPadding = PaddingValues(start = 6.dp)
         ) {
-            // Interactive Flash Badge / Quick Toggle (Supported on both Front and Back cameras)
-            val flashLabel = when (flashMode) {
-                FlashMode.OFF -> if (currentLens == LensFacing.FRONT) "⚡ OFF" else "⚡ OFF"
-                FlashMode.AUTO -> "⚡ AUTO"
-                FlashMode.ON -> if (currentLens == LensFacing.FRONT) "⚡ FLASH" else "⚡ ON"
-                FlashMode.TORCH -> if (currentLens == LensFacing.FRONT) "💡 LIGHT" else "💡 TORCH"
+            // Interactive Flash Badge / Quick Toggle
+            item {
+                val flashLabel = when (flashMode) {
+                    FlashMode.OFF -> "⚡ OFF"
+                    FlashMode.AUTO -> "⚡ AUTO"
+                    FlashMode.ON -> if (currentLens == LensFacing.FRONT) "⚡ FLASH" else "⚡ ON"
+                    FlashMode.TORCH -> if (currentLens == LensFacing.FRONT) "💡 LIGHT" else "💡 TORCH"
+                }
+
+                PixelGlassBadge(
+                    text = flashLabel,
+                    textColor = if (flashMode != FlashMode.OFF) PixelYellowAccent else PixelTextSecondary,
+                    containerColor = if (flashMode != FlashMode.OFF) Color(0x44FFDB58) else PixelGlassPill,
+                    borderColor = if (flashMode != FlashMode.OFF) PixelYellowAccent.copy(alpha = 0.5f) else PixelGlassBorderSubtle,
+                    onClick = onToggleFlash
+                )
             }
 
-            PixelGlassBadge(
-                text = flashLabel,
-                textColor = if (flashMode != FlashMode.OFF) PixelYellowAccent else PixelTextSecondary,
-                containerColor = if (flashMode != FlashMode.OFF) Color(0x44FFDB58) else PixelGlassPill,
-                borderColor = if (flashMode != FlashMode.OFF) PixelYellowAccent.copy(alpha = 0.5f) else PixelGlassBorderSubtle,
-                onClick = onToggleFlash
-            )
-
             // Resolution Badge (Clickable to open resolution switcher)
-            PixelGlassBadge(
-                text = resolutionBadge,
-                textColor = PixelTextWhite,
-                containerColor = PixelGlassPill,
-                borderColor = PixelGlassBorderSubtle,
-                onClick = onOpenQuickSettings
-            )
+            item {
+                PixelGlassBadge(
+                    text = resolutionBadge,
+                    textColor = PixelTextWhite,
+                    containerColor = PixelGlassPill,
+                    borderColor = PixelGlassBorderSubtle,
+                    onClick = onOpenQuickSettings
+                )
+            }
 
             // Interactive Color Profile / Filter Badge
-            PixelGlassBadge(
-                text = colorProfile.label.uppercase(),
-                textColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelTextPrimary,
-                containerColor = if (colorProfile != ColorProfile.NATURAL) Color(0x55FFDB58) else PixelGlassPill,
-                borderColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent.copy(alpha = 0.5f) else PixelGlassBorderSubtle,
-                onClick = onOpenFilterDrawer
-            )
+            item {
+                PixelGlassBadge(
+                    text = colorProfile.label.uppercase(),
+                    textColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelTextPrimary,
+                    containerColor = if (colorProfile != ColorProfile.NATURAL) Color(0x55FFDB58) else PixelGlassPill,
+                    borderColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent.copy(alpha = 0.5f) else PixelGlassBorderSubtle,
+                    onClick = onOpenFilterDrawer
+                )
+            }
 
             // Interactive Ultra HDR Badge (Click to Toggle On/Off)
             if (ultraHdr) {
-                PixelGlassBadge(
-                    text = "ULTRA HDR",
-                    textColor = PixelYellowAccent,
-                    containerColor = PixelYellowContainer,
-                    borderColor = PixelYellowAccent.copy(alpha = 0.3f),
-                    onClick = onToggleUltraHdr
-                )
+                item {
+                    PixelGlassBadge(
+                        text = "ULTRA HDR",
+                        textColor = PixelYellowAccent,
+                        containerColor = PixelYellowContainer,
+                        borderColor = PixelYellowAccent.copy(alpha = 0.3f),
+                        onClick = onToggleUltraHdr
+                    )
+                }
             }
 
             // RAW Format Badge
             if (captureFormat == CaptureFormat.RAW_DNG || captureFormat == CaptureFormat.RAW_PLUS_JPEG) {
-                PixelGlassBadge(
-                    text = "RAW",
-                    textColor = PixelGoogleBlue,
-                    containerColor = PixelBlueContainer,
-                    borderColor = PixelGoogleBlue.copy(alpha = 0.3f)
-                )
-            }
-
-            // Flash Status Badge
-            if (flashMode != FlashMode.OFF) {
-                PixelGlassBadge(
-                    text = flashMode.title.uppercase(),
-                    textColor = if (flashMode == FlashMode.TORCH) PixelTextOnYellow else PixelTextWhite,
-                    containerColor = if (flashMode == FlashMode.TORCH) PixelYellowAccent else PixelGlassPill,
-                    borderColor = PixelGlassBorderSubtle
-                )
+                item {
+                    PixelGlassBadge(
+                        text = "RAW",
+                        textColor = PixelGoogleBlue,
+                        containerColor = PixelBlueContainer,
+                        borderColor = PixelGoogleBlue.copy(alpha = 0.3f)
+                    )
+                }
             }
 
             // Filter Wand Button
-            IconButton(
-                onClick = onOpenFilterDrawer,
-                modifier = Modifier
-                    .size(38.dp)
-                    .pixelGlass(
-                        shape = CircleShape,
-                        backgroundColor = if (colorProfile != ColorProfile.NATURAL) Color(0x66FFDB58) else PixelGlassScrim,
-                        borderColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelGlassBorder
+            item {
+                IconButton(
+                    onClick = onOpenFilterDrawer,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .pixelGlass(
+                            shape = CircleShape,
+                            backgroundColor = if (colorProfile != ColorProfile.NATURAL) Color(0x66FFDB58) else PixelGlassScrim,
+                            borderColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelGlassBorder
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoFixHigh,
+                        contentDescription = "Camera Filters",
+                        tint = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelTextWhite,
+                        modifier = Modifier.size(16.dp)
                     )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AutoFixHigh,
-                    contentDescription = "Camera Filters",
-                    tint = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelTextWhite,
-                    modifier = Modifier.size(18.dp)
-                )
+                }
             }
 
             // App Settings Gear Button
-            IconButton(
-                onClick = onOpenSettings,
-                modifier = Modifier
-                    .size(38.dp)
-                    .pixelGlass(
-                        shape = CircleShape,
-                        backgroundColor = PixelGlassScrim,
-                        borderColor = PixelGlassBorder
+            item {
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .pixelGlass(
+                            shape = CircleShape,
+                            backgroundColor = PixelGlassScrim,
+                            borderColor = PixelGlassBorder
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Camera Settings",
+                        tint = PixelTextWhite,
+                        modifier = Modifier.size(16.dp)
                     )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Camera Settings",
-                    tint = PixelTextWhite,
-                    modifier = Modifier.size(18.dp)
-                )
+                }
             }
         }
     }

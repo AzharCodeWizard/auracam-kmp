@@ -92,10 +92,12 @@ fun ViewfinderScreen(
                 ultraHdr = ultraHdrEnabled,
                 timerDuration = timerDuration,
                 onOpenQuickSettings = {
+                    showFilterDrawer = false
                     showQuickSettings = true
                     soundAndHaptics.vibrateSnap()
                 },
                 onOpenFilterDrawer = {
+                    showQuickSettings = false
                     showFilterDrawer = !showFilterDrawer
                     soundAndHaptics.vibrateSnap()
                 },
@@ -119,11 +121,12 @@ fun ViewfinderScreen(
                     .padding(top = 4.dp, bottom = 4.dp)
             )
 
-            // 2. Centered Viewfinder Viewport Frame
+            // 2. Main Viewfinder Stage with Live Stream & Dynamic Overlays
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 val ratioModifier = when (aspectRatio) {
@@ -149,6 +152,8 @@ fun ViewfinderScreen(
                         }
                         .pointerInput(Unit) {
                             detectTapGestures { offset ->
+                                showQuickSettings = false
+                                showFilterDrawer = false
                                 val normX = offset.x / size.width
                                 val normY = offset.y / size.height
                                 engine.setFocusPoint(normX, normY)
@@ -484,7 +489,7 @@ fun ViewfinderScreen(
             visible = showQuickSettings,
             enter = slideInVertically() + fadeIn(),
             exit = slideOutVertically() + fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter)
+            modifier = Modifier.fillMaxSize()
         ) {
             QuickSettingsDialog(
                 mode = cameraMode,

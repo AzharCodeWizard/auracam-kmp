@@ -55,25 +55,37 @@ fun QuickSettingsDialog(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isVideoMode = mode == CameraMode.VIDEO || mode == CameraMode.CINEMATIC || mode == CameraMode.DUAL_VLOG
-
     Box(
         modifier = modifier
-            .fillMaxWidth()
-            .padding(top = 58.dp, start = 12.dp, end = 12.dp, bottom = 16.dp)
-            .pixelGlass(
-                shape = RoundedCornerShape(28.dp),
-                backgroundColor = PixelGlassScrimHeavy,
-                borderColor = PixelGlassBorder
-            )
+            .fillMaxSize()
+            .background(Color(0x99000000))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onDismiss() }
+            .padding(top = 40.dp, start = 12.dp, end = 12.dp, bottom = 20.dp),
+        contentAlignment = Alignment.TopCenter
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .pixelGlass(
+                    shape = RoundedCornerShape(28.dp),
+                    backgroundColor = PixelDarkSurface.copy(alpha = 0.96f),
+                    borderColor = PixelGlassBorder
+                )
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { /* consume clicks on dialog */ }
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -291,6 +303,7 @@ fun QuickSettingsDialog(
             }
         }
     }
+}
 }
 
 @Composable
