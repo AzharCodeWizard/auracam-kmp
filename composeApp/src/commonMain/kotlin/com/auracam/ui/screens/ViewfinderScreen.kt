@@ -83,6 +83,7 @@ fun ViewfinderScreen(
             // 1. Pinned Top Safe Header with Floating Top Bar
             FloatingTopBar(
                 mode = cameraMode,
+                currentLens = currentLens,
                 flashMode = flashMode,
                 captureFormat = captureFormat,
                 colorProfile = colorProfile,
@@ -100,6 +101,16 @@ fun ViewfinderScreen(
                 },
                 onToggleUltraHdr = {
                     engine.toggleUltraHdr(!ultraHdrEnabled)
+                    soundAndHaptics.vibrateSnap()
+                },
+                onToggleFlash = {
+                    val nextFlash = when (flashMode) {
+                        FlashMode.OFF -> FlashMode.AUTO
+                        FlashMode.AUTO -> FlashMode.ON
+                        FlashMode.ON -> FlashMode.TORCH
+                        FlashMode.TORCH -> FlashMode.OFF
+                    }
+                    engine.setFlash(nextFlash)
                     soundAndHaptics.vibrateSnap()
                 },
                 onOpenSettings = onOpenSettings,
@@ -255,6 +266,13 @@ fun ViewfinderScreen(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 60.dp)
+                    )
+
+                    // H. Front Camera Screen Flash & Selfie Warm Ring Light
+                    FrontScreenFlashOverlay(
+                        currentLens = currentLens,
+                        flashMode = flashMode,
+                        isCapturing = captureProgress.state != CaptureState.IDLE && captureProgress.state != CaptureState.COMPLETE
                     )
                 }
 
@@ -470,6 +488,7 @@ fun ViewfinderScreen(
         ) {
             QuickSettingsDialog(
                 mode = cameraMode,
+                currentLens = currentLens,
                 aspectRatio = aspectRatio,
                 photoResolution = photoResolution,
                 videoResolution = videoResolution,

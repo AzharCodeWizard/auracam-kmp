@@ -44,6 +44,7 @@ import kotlin.math.abs
 @Composable
 fun FloatingTopBar(
     mode: CameraMode,
+    currentLens: LensFacing = LensFacing.BACK_WIDE,
     flashMode: FlashMode,
     captureFormat: CaptureFormat,
     colorProfile: ColorProfile,
@@ -54,10 +55,11 @@ fun FloatingTopBar(
     onOpenQuickSettings: () -> Unit,
     onOpenFilterDrawer: () -> Unit = {},
     onToggleUltraHdr: () -> Unit = {},
+    onToggleFlash: () -> Unit = {},
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isVideoMode = mode == CameraMode.VIDEO || mode == CameraMode.CINEMATIC || mode == CameraMode.DUAL_VLOG
+    val isVideoMode = mode == CameraMode.VIDEO || mode == CameraMode.CINEMATIC || mode == CameraMode.DUAL_VLOG || mode == CameraMode.SLOW_MOTION || mode == CameraMode.TIME_LAPSE
     val resolutionBadge = if (isVideoMode) videoResolution.shortBadge else photoResolution.shortBadge
 
     Row(
@@ -102,11 +104,27 @@ fun FloatingTopBar(
             )
         }
 
-        // Status Badges, Filter Wand & Settings Gear
+        // Status Badges, Flash Toggle, Filter Wand & Settings Gear
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // Interactive Flash Badge / Quick Toggle (Supported on both Front and Back cameras)
+            val flashLabel = when (flashMode) {
+                FlashMode.OFF -> if (currentLens == LensFacing.FRONT) "⚡ OFF" else "⚡ OFF"
+                FlashMode.AUTO -> "⚡ AUTO"
+                FlashMode.ON -> if (currentLens == LensFacing.FRONT) "⚡ FLASH" else "⚡ ON"
+                FlashMode.TORCH -> if (currentLens == LensFacing.FRONT) "💡 LIGHT" else "💡 TORCH"
+            }
+
+            PixelGlassBadge(
+                text = flashLabel,
+                textColor = if (flashMode != FlashMode.OFF) PixelYellowAccent else PixelTextSecondary,
+                containerColor = if (flashMode != FlashMode.OFF) Color(0x44FFDB58) else PixelGlassPill,
+                borderColor = if (flashMode != FlashMode.OFF) PixelYellowAccent.copy(alpha = 0.5f) else PixelGlassBorderSubtle,
+                onClick = onToggleFlash
+            )
+
             // Resolution Badge (Clickable to open resolution switcher)
             PixelGlassBadge(
                 text = resolutionBadge,

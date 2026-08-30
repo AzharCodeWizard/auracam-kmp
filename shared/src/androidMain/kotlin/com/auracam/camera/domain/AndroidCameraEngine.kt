@@ -628,11 +628,18 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
     override fun setFlash(flash: FlashMode) {
         super.setFlash(flash)
         val control = camera?.cameraControl
-        if (flash == FlashMode.TORCH) {
-            control?.enableTorch(true)
+        val hasFlash = camera?.cameraInfo?.hasFlashUnit() == true
+        if (hasFlash) {
+            if (flash == FlashMode.TORCH) {
+                runCatching { control?.enableTorch(true) }
+            } else {
+                runCatching { control?.enableTorch(false) }
+                imageCapture?.flashMode = toCameraXFlashMode(flash)
+            }
         } else {
-            control?.enableTorch(false)
-            imageCapture?.flashMode = toCameraXFlashMode(flash)
+            // Front camera screen flash fallback
+            runCatching { control?.enableTorch(false) }
+            imageCapture?.flashMode = ImageCapture.FLASH_MODE_OFF
         }
     }
 

@@ -31,6 +31,7 @@ import com.auracam.ui.theme.*
 @Composable
 fun QuickSettingsDialog(
     mode: CameraMode,
+    currentLens: LensFacing = LensFacing.BACK_WIDE,
     aspectRatio: AspectRatio,
     photoResolution: PhotoResolution,
     videoResolution: VideoResolution,
@@ -167,14 +168,21 @@ fun QuickSettingsDialog(
                 }
             }
 
-            // Flash Mode
-            SectionHeader(title = "Flash Mode", icon = Icons.Default.FlashOn)
+            // Flash Mode / Selfie Light
+            val flashTitle = if (currentLens == LensFacing.FRONT) "Selfie Flash & Light Ring" else "Flash Mode"
+            SectionHeader(title = flashTitle, icon = Icons.Default.FlashOn)
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(FlashMode.values()) { flash ->
+                    val buttonText = when {
+                        currentLens == LensFacing.FRONT && flash == FlashMode.ON -> "Screen Flash"
+                        currentLens == LensFacing.FRONT && flash == FlashMode.TORCH -> "Light Ring"
+                        currentLens == LensFacing.FRONT && flash == FlashMode.AUTO -> "Auto Flash"
+                        else -> flash.title
+                    }
                     PillButton(
-                        text = flash.title,
+                        text = buttonText,
                         isSelected = flash == flashMode,
                         onClick = { onFlashChange(flash) }
                     )
