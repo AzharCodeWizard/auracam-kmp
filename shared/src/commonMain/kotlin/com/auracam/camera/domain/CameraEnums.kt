@@ -12,6 +12,7 @@ enum class CameraMode(
     PORTRAIT("Portrait", "PORTRAIT", false),
     PHOTO("Photo", "PHOTO", true),
     VIDEO("Video", "VIDEO", true),
+    DUAL_VLOG("Dual Vlog", "DUAL", true),
     CINEMATIC("Cinematic", "CINEMA", false),
     PRO("Pro / Expert", "PRO", true),
     ASTRO("Astrophotography", "ASTRO", false),
@@ -75,10 +76,21 @@ enum class GridType(val label: String) {
 
 @Serializable
 enum class ColorProfile(val label: String, val description: String) {
-    NATURAL("Natural", "No viewfinder tint"),
-    VIBRANT("Vibrant", "Viewfinder preview only, not saved"),
-    REAL_TONE("Real Tone", "Viewfinder preview only, not saved"),
-    HIGH_CONTRAST_MONO("B&W Mono", "Viewfinder preview only, not saved"),
-    CINEMATIC_WARM("Cinematic", "Viewfinder preview only, not saved"),
-    ASTRO_BOOST("Astro Boost", "Viewfinder preview only, not saved")
+    NATURAL("Natural", "True to life neutral tones"),
+    REAL_TONE("Real Tone", "Google Real Tone skin tone accuracy"),
+    VIBRANT("Vibrant", "Punchy rich color saturation"),
+    CINEMATIC_WARM("Cinematic", "Warm golden hour film grade"),
+    HIGH_CONTRAST_MONO("B&W Mono", "Deep high-contrast monochrome"),
+    VINTAGE_FILM("Vintage", "Analog retro warm fade"),
+    COOL_BREEZE("Cool Tone", "Crisp modern cool blues"),
+    ASTRO_BOOST("Astro Boost", "Deep night sky star boost"),
+    CLEAN_DOC("Doc Clean", "High contrast document text enhancement")
+}
+
+@Serializable
+enum class DualVlogLayout(val label: String) {
+    PIP_RECT("PiP Rect"),
+    PIP_CIRCLE("PiP Circle"),
+    SPLIT_50_50("50/50 Split"),
+    SIDE_BY_SIDE("Side by Side")
 }

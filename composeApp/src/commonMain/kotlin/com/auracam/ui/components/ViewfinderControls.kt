@@ -39,7 +39,7 @@ import kotlin.math.abs
 // =========================================================================
 
 /**
- * 1. Floating Top Action Bar: Glass pill container for Quick Settings & Badges
+ * 1. Floating Top Action Bar: Glass pill container for Quick Settings, Badges, and Filter Drawer
  */
 @Composable
 fun FloatingTopBar(
@@ -50,6 +50,8 @@ fun FloatingTopBar(
     ultraHdr: Boolean,
     timerDuration: TimerDuration,
     onOpenQuickSettings: () -> Unit,
+    onOpenFilterDrawer: () -> Unit = {},
+    onToggleUltraHdr: () -> Unit = {},
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -95,26 +97,28 @@ fun FloatingTopBar(
             )
         }
 
-        // Status Badges & Settings Gear
+        // Status Badges, Filter Wand & Settings Gear
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Color Profile Badge
+            // Interactive Color Profile / Filter Badge
             PixelGlassBadge(
-                text = colorProfile.label,
-                textColor = PixelTextPrimary,
-                containerColor = PixelGlassPill,
-                borderColor = PixelGlassBorderSubtle
+                text = colorProfile.label.uppercase(),
+                textColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelTextPrimary,
+                containerColor = if (colorProfile != ColorProfile.NATURAL) Color(0x55FFDB58) else PixelGlassPill,
+                borderColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent.copy(alpha = 0.5f) else PixelGlassBorderSubtle,
+                onClick = onOpenFilterDrawer
             )
 
-            // Ultra HDR Badge
+            // Interactive Ultra HDR Badge (Click to Toggle On/Off)
             if (ultraHdr) {
                 PixelGlassBadge(
                     text = "ULTRA HDR",
                     textColor = PixelYellowAccent,
                     containerColor = PixelYellowContainer,
-                    borderColor = PixelYellowAccent.copy(alpha = 0.3f)
+                    borderColor = PixelYellowAccent.copy(alpha = 0.3f),
+                    onClick = onToggleUltraHdr
                 )
             }
 
@@ -138,13 +142,22 @@ fun FloatingTopBar(
                 )
             }
 
-            // Timer Status Badge
-            if (timerDuration != TimerDuration.OFF) {
-                PixelGlassBadge(
-                    text = timerDuration.label,
-                    textColor = PixelTextWhite,
-                    containerColor = PixelGlassPill,
-                    borderColor = PixelGlassBorderSubtle
+            // Filter Wand Button
+            IconButton(
+                onClick = onOpenFilterDrawer,
+                modifier = Modifier
+                    .size(38.dp)
+                    .pixelGlass(
+                        shape = CircleShape,
+                        backgroundColor = if (colorProfile != ColorProfile.NATURAL) Color(0x66FFDB58) else PixelGlassScrim,
+                        borderColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelGlassBorder
+                    )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoFixHigh,
+                    contentDescription = "Camera Filters",
+                    tint = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelTextWhite,
+                    modifier = Modifier.size(18.dp)
                 )
             }
 

@@ -63,6 +63,7 @@ fun ViewfinderScreen(
     val galleryList by engine.galleryList.collectAsState()
 
     var showQuickSettings by remember { mutableStateOf(false) }
+    var showFilterDrawer by remember { mutableStateOf(false) }
     var showGalleryPreview by remember { mutableStateOf(false) }
 
     Box(
@@ -84,6 +85,14 @@ fun ViewfinderScreen(
                 timerDuration = timerDuration,
                 onOpenQuickSettings = {
                     showQuickSettings = true
+                    soundAndHaptics.vibrateSnap()
+                },
+                onOpenFilterDrawer = {
+                    showFilterDrawer = !showFilterDrawer
+                    soundAndHaptics.vibrateSnap()
+                },
+                onToggleUltraHdr = {
+                    engine.toggleUltraHdr(!ultraHdrEnabled)
                     soundAndHaptics.vibrateSnap()
                 },
                 onOpenSettings = onOpenSettings,
@@ -151,6 +160,20 @@ fun ViewfinderScreen(
                                     .background(Color(0x15FFAA00))
                             )
                         }
+                        ColorProfile.VINTAGE_FILM -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0x188D6E63))
+                            )
+                        }
+                        ColorProfile.COOL_BREEZE -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0x180099FF))
+                            )
+                        }
                         ColorProfile.ASTRO_BOOST -> {
                             Box(
                                 modifier = Modifier
@@ -165,7 +188,26 @@ fun ViewfinderScreen(
                                     .background(Color(0x10FF5500))
                             )
                         }
+                        ColorProfile.CLEAN_DOC -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0x10FFFFFF))
+                            )
+                        }
                         else -> {}
+                    }
+
+                    // Multi-Stream Dual Vlog / Director's View Overlay
+                    if (cameraMode == CameraMode.DUAL_VLOG) {
+                        DualVlogOverlay(
+                            isRecording = isRecording,
+                            onFlipStream = {
+                                val nextLens = if (currentLens == LensFacing.FRONT) LensFacing.BACK_WIDE else LensFacing.FRONT
+                                engine.setLens(nextLens)
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
 
                     ExposureMaskLayer(
@@ -387,6 +429,25 @@ fun ViewfinderScreen(
                     soundAndHaptics.vibrateSnap()
                 },
                 onDismiss = { showQuickSettings = false }
+            )
+        }
+
+        // Live Filters / LUTs Drawer Overlay
+        AnimatedVisibility(
+            visible = showFilterDrawer,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 190.dp)
+        ) {
+            FilterDrawer(
+                currentColorProfile = colorProfile,
+                onColorProfileSelected = {
+                    engine.setColorProfile(it)
+                    soundAndHaptics.vibrateSnap()
+                },
+                onDismiss = { showFilterDrawer = false }
             )
         }
 

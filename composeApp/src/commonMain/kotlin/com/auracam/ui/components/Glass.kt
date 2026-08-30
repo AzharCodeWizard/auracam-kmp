@@ -2,11 +2,14 @@ package com.auracam.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -121,6 +124,7 @@ fun PixelGlassCard(
 
 /**
  * High-contrast Glass Status Badge (e.g. ULTRA HDR, RAW, PRO, NIGHT)
+ * Optional interactive click support.
  */
 @Composable
 fun PixelGlassBadge(
@@ -129,14 +133,24 @@ fun PixelGlassBadge(
     textColor: Color = PixelTextWhite,
     containerColor: Color = PixelGlassPill,
     borderColor: Color = PixelGlassBorderSubtle,
-    shape: Shape = RoundedCornerShape(8.dp)
+    shape: Shape = RoundedCornerShape(8.dp),
+    onClick: (() -> Unit)? = null
 ) {
+    val clickModifier = if (onClick != null) {
+        Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = onClick
+        )
+    } else Modifier
+
     Box(
         modifier = modifier
             .clip(shape)
             .background(containerColor)
             .border(0.75.dp, borderColor, shape)
-            .padding(horizontal = 7.dp, vertical = 3.5.dp),
+            .then(clickModifier)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(

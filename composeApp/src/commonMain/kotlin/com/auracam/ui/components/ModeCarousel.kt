@@ -42,6 +42,7 @@ fun ModeCarousel(
             CameraMode.PORTRAIT,
             CameraMode.PHOTO,
             CameraMode.VIDEO,
+            CameraMode.DUAL_VLOG,
             CameraMode.CINEMATIC,
             CameraMode.PRO,
             CameraMode.ASTRO,
