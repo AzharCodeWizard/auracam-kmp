@@ -292,7 +292,11 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
     }
 
     private fun isVideoMode(mode: CameraMode) =
-        mode == CameraMode.VIDEO || mode == CameraMode.CINEMATIC
+        mode == CameraMode.VIDEO ||
+        mode == CameraMode.CINEMATIC ||
+        mode == CameraMode.DUAL_VLOG ||
+        mode == CameraMode.SLOW_MOTION ||
+        mode == CameraMode.TIME_LAPSE
 
     fun startCamera() {
         val provider = cameraProvider ?: return
@@ -379,11 +383,22 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
             }
 
             videoCapture = if (wantsVideo) {
+                val targetQuality = when (_videoResolution.value) {
+                    VideoResolution.UHD_4K_60, VideoResolution.UHD_4K_30 -> Quality.UHD
+                    VideoResolution.FHD_1080P_60, VideoResolution.FHD_1080P_30 -> Quality.FHD
+                    VideoResolution.HD_720P_30 -> Quality.HD
+                }
+                val orderedQualities = when (targetQuality) {
+                    Quality.UHD -> listOf(Quality.UHD, Quality.FHD, Quality.HD, Quality.SD)
+                    Quality.FHD -> listOf(Quality.FHD, Quality.HD, Quality.SD)
+                    Quality.HD -> listOf(Quality.HD, Quality.SD)
+                    else -> listOf(Quality.FHD, Quality.HD, Quality.SD)
+                }
                 val recorder = Recorder.Builder()
                     .setQualitySelector(
                         QualitySelector.fromOrderedList(
-                            listOf(Quality.UHD, Quality.FHD, Quality.HD, Quality.SD),
-                            FallbackStrategy.higherQualityOrLowerThan(Quality.FHD)
+                            orderedQualities,
+                            FallbackStrategy.lowerQualityOrHigherThan(targetQuality)
                         )
                     )
                     .build()
@@ -723,6 +738,15 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
     override fun setPhotoResolution(resolution: PhotoResolution) {
         val previous = _photoResolution.value
         super.setPhotoResolution(resolution)
+        if (previous != resolution) {
+            boundSignature = null
+            startCamera()
+        }
+    }
+
+    override fun setVideoResolution(resolution: VideoResolution) {
+        val previous = _videoResolution.value
+        super.setVideoResolution(resolution)
         if (previous != resolution) {
             boundSignature = null
             startCamera()
@@ -1238,6 +1262,33 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
                     is VideoRecordEvent.Finalize -> {
                         if (recordEvent.hasError()) {
                             Log.e(TAG, "Recording error ${recordEvent.error}", recordEvent.cause)
+                        } else {
+                            val outputUri = recordEvent.outputResults.outputUri
+                            val now = System.currentTimeMillis()
+                            val media = CapturedMedia(
+                                id = "VID_$now",
+                                uri = outputUri.toString(),
+                                fileName = fileName,
+                                timestamp = now,
+                                width = 1920,
+                                height = 1080,
+                                format = CaptureFormat.JPEG,
+                                mode = _cameraMode.value,
+                                exif = ExifInfo(
+                                    deviceModel = "AuraCam",
+                                    lensFocalLength = "",
+                                    iso = 0,
+                                    shutterSpeed = "",
+                                    aperture = "",
+                                    exposureBias = "",
+                                    whiteBalance = "",
+                                    format = "video/mp4",
+                                    resolution = "1920 × 1080",
+                                    timestamp = ComputationalPipeline.formatTimestamp(now)
+                                )
+                            )
+                            _recentMedia.value = media
+                            _galleryList.value = listOf(media) + _galleryList.value
                         }
                         activeRecording = null
                         _isRecording.value = false

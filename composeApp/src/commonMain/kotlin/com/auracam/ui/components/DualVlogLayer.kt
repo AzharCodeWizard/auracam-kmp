@@ -167,14 +167,93 @@ fun DualVlogOverlay(
                 }
             }
         } else if (layout == DualVlogLayout.SPLIT_50_50) {
-            // Split Line Divider
+            // Top Section Tag
             Box(
                 modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 70.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x88000000))
+                    .border(1.dp, Color(0x33FFFFFF), CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = if (swapped) "SELFIE STREAM (FRONT)" else "PRIMARY STREAM (REAR)",
+                    color = PixelYellowAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Split Center Line Divider with Interactive Flip Action
+            Row(
+                modifier = Modifier
                     .fillMaxWidth()
-                    .height(3.dp)
-                    .background(PixelYellowAccent)
                     .align(Alignment.Center)
-            )
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(2.dp)
+                        .background(PixelYellowAccent.copy(alpha = 0.8f))
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(PixelDarkSurface)
+                        .border(1.5.dp, PixelYellowAccent, CircleShape)
+                        .clickable {
+                            swapped = !swapped
+                            onFlipStream()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FlipCameraAndroid,
+                            contentDescription = "Swap Streams",
+                            tint = PixelYellowAccent,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "SWAP",
+                            color = PixelYellowAccent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(2.dp)
+                        .background(PixelYellowAccent.copy(alpha = 0.8f))
+                )
+            }
+
+            // Bottom Section Tag
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 70.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x88000000))
+                    .border(1.dp, Color(0x33FFFFFF), CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = if (swapped) "PRIMARY STREAM (REAR)" else "SELFIE STREAM (FRONT)",
+                    color = PixelGoogleBlue,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
