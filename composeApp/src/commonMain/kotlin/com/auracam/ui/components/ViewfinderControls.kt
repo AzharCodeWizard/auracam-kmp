@@ -41,8 +41,8 @@ import kotlin.math.abs
 // =========================================================================
 
 /**
- * 1. Floating Top Glass Action Bar
- * Quick settings trigger, flash toggle, resolution badge, filters, and app settings.
+ * 1. Floating Top Studio Glass Action Bar
+ * Ultra-clean unified studio pill, dynamic status, filter wand, and settings.
  */
 @Composable
 fun FloatingTopBar(
@@ -68,157 +68,155 @@ fun FloatingTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Quick Settings Pill
+        // Left: Unified Studio Quick Control Capsule
         Row(
             modifier = Modifier
-                .pixelGlass(
-                    shape = CircleShape,
-                    backgroundColor = PixelGlassScrim,
-                    borderColor = PixelGlassBorder
-                )
+                .clip(CircleShape)
+                .background(Color(0xB3101216))
+                .border(1.dp, Color(0x26FFFFFF), CircleShape)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) { onOpenQuickSettings() }
-                .padding(horizontal = 12.dp, vertical = 7.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // Flash Icon Indicator
             Icon(
-                imageVector = Icons.Default.Tune,
-                contentDescription = "Quick Settings",
-                tint = PixelYellowAccent,
-                modifier = Modifier.size(16.dp)
+                imageVector = when (flashMode) {
+                    FlashMode.OFF -> Icons.Default.FlashOff
+                    FlashMode.AUTO -> Icons.Default.FlashAuto
+                    FlashMode.ON -> Icons.Default.FlashOn
+                    FlashMode.TORCH -> Icons.Default.Highlight
+                },
+                contentDescription = "Flash",
+                tint = if (flashMode != FlashMode.OFF) PixelYellowAccent else PixelTextSecondary,
+                modifier = Modifier.size(15.dp)
             )
+
+            // Bullet separator
             Text(
-                text = "Settings",
-                style = AuraCamTheme.cameraTypography.pillLabel,
-                color = PixelTextWhite
+                text = "·",
+                color = Color(0x66FFFFFF),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
             )
+
+            // Resolution Tag
+            Text(
+                text = resolutionBadge,
+                color = PixelTextPrimary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            if (ultraHdr) {
+                Text(
+                    text = "·",
+                    color = Color(0x66FFFFFF),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "HDR",
+                    color = PixelYellowAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            if (captureFormat == CaptureFormat.RAW_DNG || captureFormat == CaptureFormat.RAW_PLUS_JPEG) {
+                Text(
+                    text = "·",
+                    color = Color(0x66FFFFFF),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "RAW",
+                    color = PixelGoogleBlue,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            if (timerDuration != TimerDuration.OFF) {
+                Text(
+                    text = "·",
+                    color = Color(0x66FFFFFF),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = timerDuration.label,
+                    color = PixelYellowAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
             Icon(
                 imageVector = Icons.Default.KeyboardArrowDown,
                 contentDescription = "Expand",
                 tint = PixelTextSecondary,
-                modifier = Modifier.size(15.dp)
+                modifier = Modifier.size(14.dp)
             )
         }
 
-        // Status Badges, Flash Toggle, Filter Wand & Settings Gear
-        LazyRow(
-            modifier = Modifier.weight(1f, fill = false),
+        // Right: Glass Circular Control Buttons (Filters & App Settings)
+        Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
-            contentPadding = PaddingValues(start = 6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Interactive Flash Badge / Quick Toggle
-            item {
-                val flashLabel = when (flashMode) {
-                    FlashMode.OFF -> "⚡ OFF"
-                    FlashMode.AUTO -> "⚡ AUTO"
-                    FlashMode.ON -> if (currentLens == LensFacing.FRONT) "⚡ FLASH" else "⚡ ON"
-                    FlashMode.TORCH -> if (currentLens == LensFacing.FRONT) "💡 LIGHT" else "💡 TORCH"
-                }
-
-                PixelGlassBadge(
-                    text = flashLabel,
-                    textColor = if (flashMode != FlashMode.OFF) PixelYellowAccent else PixelTextSecondary,
-                    containerColor = if (flashMode != FlashMode.OFF) Color(0x44FFDB58) else PixelGlassPill,
-                    borderColor = if (flashMode != FlashMode.OFF) PixelYellowAccent.copy(alpha = 0.5f) else PixelGlassBorderSubtle,
-                    onClick = onToggleFlash
-                )
-            }
-
-            // Resolution Badge (Clickable to open resolution switcher)
-            item {
-                PixelGlassBadge(
-                    text = resolutionBadge,
-                    textColor = PixelTextWhite,
-                    containerColor = PixelGlassPill,
-                    borderColor = PixelGlassBorderSubtle,
-                    onClick = onOpenQuickSettings
-                )
-            }
-
-            // Interactive Color Profile / Filter Badge
-            item {
-                PixelGlassBadge(
-                    text = colorProfile.label.uppercase(),
-                    textColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelTextPrimary,
-                    containerColor = if (colorProfile != ColorProfile.NATURAL) Color(0x55FFDB58) else PixelGlassPill,
-                    borderColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent.copy(alpha = 0.5f) else PixelGlassBorderSubtle,
-                    onClick = onOpenFilterDrawer
-                )
-            }
-
-            // Interactive Ultra HDR Badge (Click to Toggle On/Off)
-            if (ultraHdr) {
-                item {
-                    PixelGlassBadge(
-                        text = "ULTRA HDR",
-                        textColor = PixelYellowAccent,
-                        containerColor = PixelYellowContainer,
-                        borderColor = PixelYellowAccent.copy(alpha = 0.3f),
-                        onClick = onToggleUltraHdr
+            // Filter / Color Profile Button
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(if (colorProfile != ColorProfile.NATURAL) Color(0x40FFDB58) else Color(0x80101216))
+                    .border(
+                        1.dp,
+                        if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent.copy(alpha = 0.6f) else Color(0x22FFFFFF),
+                        CircleShape
                     )
-                }
-            }
-
-            // RAW Format Badge
-            if (captureFormat == CaptureFormat.RAW_DNG || captureFormat == CaptureFormat.RAW_PLUS_JPEG) {
-                item {
-                    PixelGlassBadge(
-                        text = "RAW",
-                        textColor = PixelGoogleBlue,
-                        containerColor = PixelBlueContainer,
-                        borderColor = PixelGoogleBlue.copy(alpha = 0.3f)
-                    )
-                }
-            }
-
-            // Filter Wand Button
-            item {
-                IconButton(
-                    onClick = onOpenFilterDrawer,
-                    modifier = Modifier
-                        .size(34.dp)
-                        .pixelGlass(
-                            shape = CircleShape,
-                            backgroundColor = if (colorProfile != ColorProfile.NATURAL) Color(0x66FFDB58) else PixelGlassScrim,
-                            borderColor = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelGlassBorder
-                        )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoFixHigh,
-                        contentDescription = "Camera Filters",
-                        tint = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelTextWhite,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onOpenFilterDrawer() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoFixHigh,
+                    contentDescription = "Color Profiles",
+                    tint = if (colorProfile != ColorProfile.NATURAL) PixelYellowAccent else PixelTextPrimary,
+                    modifier = Modifier.size(17.dp)
+                )
             }
 
             // App Settings Gear Button
-            item {
-                IconButton(
-                    onClick = onOpenSettings,
-                    modifier = Modifier
-                        .size(34.dp)
-                        .pixelGlass(
-                            shape = CircleShape,
-                            backgroundColor = PixelGlassScrim,
-                            borderColor = PixelGlassBorder
-                        )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Camera Settings",
-                        tint = PixelTextWhite,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x80101216))
+                    .border(1.dp, Color(0x22FFFFFF), CircleShape)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onOpenSettings() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "App Settings",
+                    tint = PixelTextPrimary,
+                    modifier = Modifier.size(17.dp)
+                )
             }
         }
     }
@@ -444,7 +442,6 @@ fun ExpressiveShutterButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
-    // Tactile spring depression scale
     val buttonScale by animateFloatAsState(
         targetValue = when {
             isPressed -> 0.88f
@@ -457,7 +454,6 @@ fun ExpressiveShutterButton(
         )
     )
 
-    // Inner core color transition
     val isVideoMode = mode == CameraMode.VIDEO || mode == CameraMode.CINEMATIC || mode == CameraMode.DUAL_VLOG || mode == CameraMode.SLOW_MOTION || mode == CameraMode.TIME_LAPSE
     val coreColor by animateColorAsState(
         targetValue = when {
@@ -469,7 +465,7 @@ fun ExpressiveShutterButton(
 
     Box(
         modifier = modifier
-            .size(88.dp)
+            .size(84.dp)
             .scale(buttonScale)
             .clip(CircleShape)
             .clickable(
@@ -479,7 +475,7 @@ fun ExpressiveShutterButton(
             ) { onShutterClick() },
         contentAlignment = Alignment.Center
     ) {
-        // Outer concentric white ring
+        // Outer concentric white ring with subtle specular halo
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -491,7 +487,7 @@ fun ExpressiveShutterButton(
             // Recording state: Red rounded square
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(28.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .background(PixelRecordRed)
             )
@@ -499,7 +495,7 @@ fun ExpressiveShutterButton(
             // Idle / Photo / Video circle core
             Box(
                 modifier = Modifier
-                    .size(68.dp)
+                    .size(66.dp)
                     .clip(CircleShape)
                     .background(coreColor)
             )
@@ -509,9 +505,9 @@ fun ExpressiveShutterButton(
         if (isCapturing) {
             CircularProgressIndicator(
                 progress = { captureProgress.progress },
-                modifier = Modifier.size(82.dp),
+                modifier = Modifier.size(78.dp),
                 color = PixelYellowAccent,
-                strokeWidth = 4.dp
+                strokeWidth = 3.5.dp
             )
         }
     }
@@ -543,19 +539,17 @@ fun ShutterControlRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 8.dp),
+            .padding(horizontal = 28.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Left: Gallery Preview Thumbnail Button
         Box(
             modifier = Modifier
-                .size(56.dp)
-                .pixelGlass(
-                    shape = CircleShape,
-                    backgroundColor = PixelSurfaceContainerHigh,
-                    borderColor = PixelGlassBorder
-                )
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(Color(0x66181B22))
+                .border(1.5.dp, Color(0x33FFFFFF), CircleShape)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -588,7 +582,7 @@ fun ShutterControlRow(
                     imageVector = Icons.Default.PhotoLibrary,
                     contentDescription = "Gallery",
                     tint = PixelTextWhite,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
@@ -605,13 +599,11 @@ fun ShutterControlRow(
         // Right: Camera Flip Button with Spring Rotation
         Box(
             modifier = Modifier
-                .size(56.dp)
+                .size(52.dp)
                 .rotate(animatedFlipRotation)
-                .pixelGlass(
-                    shape = CircleShape,
-                    backgroundColor = PixelSurfaceContainerHigh,
-                    borderColor = PixelGlassBorder
-                )
+                .clip(CircleShape)
+                .background(Color(0x66181B22))
+                .border(1.5.dp, Color(0x33FFFFFF), CircleShape)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -625,7 +617,7 @@ fun ShutterControlRow(
                 imageVector = Icons.Default.Cameraswitch,
                 contentDescription = "Switch Camera",
                 tint = PixelTextWhite,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
     }

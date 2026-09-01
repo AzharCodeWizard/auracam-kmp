@@ -1,15 +1,18 @@
 package com.auracam.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Brightness5
-import androidx.compose.material.icons.filled.Contrast
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -20,11 +23,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.auracam.camera.domain.FocusPoint
 import com.auracam.camera.domain.ProSettings
 import com.auracam.ui.theme.*
+import kotlinx.coroutines.delay
 
+/**
+ * Minimalist Pro Focus Reticle with Sleek Glass EV Brightness Slider
+ */
 @Composable
 fun FocusBracketOverlay(
     focusPoint: FocusPoint?,
@@ -34,12 +43,20 @@ fun FocusBracketOverlay(
 ) {
     if (focusPoint == null) return
 
+    var isSliderVisible by remember { mutableStateOf(true) }
+
+    LaunchedEffect(focusPoint, proSettings.evBias) {
+        isSliderVisible = true
+        delay(3500)
+        isSliderVisible = false
+    }
+
     val infiniteTransition = rememberInfiniteTransition()
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = 0.95f,
-        targetValue = 0.45f,
+        targetValue = 0.60f,
         animationSpec = infiniteRepeatable(
-            animation = tween(700, easing = LinearEasing),
+            animation = tween(800, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
         )
     )
@@ -48,146 +65,105 @@ fun FocusBracketOverlay(
         val focusPxX = maxWidth * focusPoint.x
         val focusPxY = maxHeight * focusPoint.y
 
-        // Yellow Corner Focus Bracket
+        // 1. Sleek Minimalist Focus Reticle
         Box(
             modifier = Modifier
                 .offset(
-                    x = (focusPxX - 36.dp).coerceIn(0.dp, maxWidth - 72.dp),
-                    y = (focusPxY - 36.dp).coerceIn(0.dp, maxHeight - 72.dp)
+                    x = (focusPxX - 32.dp).coerceIn(8.dp, maxWidth - 72.dp),
+                    y = (focusPxY - 32.dp).coerceIn(8.dp, maxHeight - 72.dp)
                 )
-                .size(72.dp)
+                .size(64.dp)
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val strokeW = 2.5f.dp.toPx()
-                val bracketLen = 14.dp.toPx()
-                val c = PixelYellowAccent.copy(alpha = pulseAlpha)
+                val strokeW = 1.5.dp.toPx()
+                val tickLen = 10.dp.toPx()
+                val reticleColor = PixelYellowAccent.copy(alpha = pulseAlpha)
 
-                // Top-Left
-                drawLine(c, Offset(0f, 0f), Offset(bracketLen, 0f), strokeW)
-                drawLine(c, Offset(0f, 0f), Offset(0f, bracketLen), strokeW)
+                // Outer Focus Ring
+                drawCircle(
+                    color = reticleColor,
+                    radius = size.width / 2f - 2f,
+                    style = Stroke(width = strokeW)
+                )
 
-                // Top-Right
-                drawLine(c, Offset(size.width, 0f), Offset(size.width - bracketLen, 0f), strokeW)
-                drawLine(c, Offset(size.width, 0f), Offset(size.width, bracketLen), strokeW)
+                // Center precision dot
+                val center = Offset(size.width / 2f, size.height / 2f)
+                drawCircle(
+                    color = reticleColor,
+                    radius = 2.5.dp.toPx()
+                )
 
-                // Bottom-Left
-                drawLine(c, Offset(0f, size.height), Offset(bracketLen, size.height), strokeW)
-                drawLine(c, Offset(0f, size.height), Offset(0f, size.height - bracketLen), strokeW)
-
-                // Bottom-Right
-                drawLine(c, Offset(size.width, size.height), Offset(size.width - bracketLen, size.height), strokeW)
-                drawLine(c, Offset(size.width, size.height), Offset(size.width, size.height - bracketLen), strokeW)
-
-                // Center metering cross
-                drawCircle(c, radius = 4.dp.toPx(), style = Stroke(width = strokeW))
+                // 4 Cross ticks
+                drawLine(reticleColor, Offset(center.x - tickLen, center.y), Offset(center.x - 4.dp.toPx(), center.y), strokeW)
+                drawLine(reticleColor, Offset(center.x + 4.dp.toPx(), center.y), Offset(center.x + tickLen, center.y), strokeW)
+                drawLine(reticleColor, Offset(center.x, center.y - tickLen), Offset(center.x, center.y - 4.dp.toPx()), strokeW)
+                drawLine(reticleColor, Offset(center.x, center.y + 4.dp.toPx()), Offset(center.x, center.y + tickLen), strokeW)
             }
         }
 
-        // Dual Exposure Sliders Box (Sun EV + Moon Shadows)
-        Row(
+        // 2. Ultra-Sleek Glass EV Slider
+        AnimatedVisibility(
+            visible = isSliderVisible,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(300)),
             modifier = Modifier
                 .offset(
-                    x = (focusPxX + 44.dp).coerceIn(0.dp, maxWidth - 92.dp),
-                    y = (focusPxY - 60.dp).coerceIn(0.dp, maxHeight - 150.dp)
+                    x = (focusPxX + 40.dp).coerceIn(8.dp, maxWidth - 56.dp),
+                    y = (focusPxY - 60.dp).coerceIn(8.dp, maxHeight - 140.dp)
                 )
-                .pixelGlass(
-                    shape = RoundedCornerShape(20.dp),
-                    backgroundColor = PixelGlassScrimHeavy,
-                    borderColor = PixelGlassBorder
-                )
-                .padding(horizontal = 8.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. Sun EV Brightness Slider
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.pointerInput(Unit) {
-                    detectVerticalDragGestures { change, dragAmount ->
-                        change.consume()
-                        val deltaEv = -dragAmount / 30f
-                        onProSettingsChange { current ->
-                            val newEv = (current.evBias + deltaEv).coerceIn(-3.0f, 3.0f)
-                            current.copy(evBias = kotlin.math.round(newEv * 10) / 10f)
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xCC101216))
+                    .border(1.dp, Color(0x2BFFFFFF), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 8.dp, vertical = 10.dp)
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures { change, dragAmount ->
+                            change.consume()
+                            val deltaEv = -dragAmount / 35f
+                            onProSettingsChange { current ->
+                                val newEv = (current.evBias + deltaEv).coerceIn(-3.0f, 3.0f)
+                                current.copy(evBias = kotlin.math.round(newEv * 10) / 10f)
+                            }
                         }
                     }
-                }
             ) {
                 Icon(
-                    imageVector = Icons.Default.Brightness5,
-                    contentDescription = "Brightness",
+                    imageVector = Icons.Default.WbSunny,
+                    contentDescription = "EV Bias",
                     tint = PixelYellowAccent,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(15.dp)
                 )
 
+                // Slider Track
                 Box(
                     modifier = Modifier
-                        .width(4.dp)
-                        .height(72.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color(0xFF444444)),
+                        .width(3.dp)
+                        .height(64.dp)
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(Color(0x44FFFFFF)),
                     contentAlignment = Alignment.Center
                 ) {
+                    val thumbOffset = (-proSettings.evBias * 9).dp.coerceIn(-28.dp, 28.dp)
                     Box(
                         modifier = Modifier
-                            .offset(y = (-proSettings.evBias * 10).dp.coerceIn(-32.dp, 32.dp))
-                            .size(14.dp)
+                            .offset(y = thumbOffset)
+                            .size(11.dp)
                             .clip(CircleShape)
                             .background(PixelYellowAccent)
+                            .border(1.dp, PixelPitchBlack, CircleShape)
                     )
                 }
 
+                // Numeric EV Readout
                 Text(
                     text = "${if (proSettings.evBias >= 0) "+" else ""}${proSettings.evBias}",
-                    style = AuraCamTheme.cameraTypography.hudMetricHighlight,
-                    color = PixelYellowAccent
-                )
-            }
-
-            // 2. Moon Shadows Tone Slider
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.pointerInput(Unit) {
-                    detectVerticalDragGestures { change, dragAmount ->
-                        change.consume()
-                        val deltaShadow = -dragAmount / 50f
-                        onProSettingsChange { current ->
-                            val newShadow = (current.shadowBias + deltaShadow).coerceIn(-1.0f, 1.0f)
-                            current.copy(shadowBias = kotlin.math.round(newShadow * 10) / 10f)
-                        }
-                    }
-                }
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Contrast,
-                    contentDescription = "Shadows",
-                    tint = PixelTextWhite,
-                    modifier = Modifier.size(16.dp)
-                )
-
-                Box(
-                    modifier = Modifier
-                        .width(4.dp)
-                        .height(72.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color(0xFF444444)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .offset(y = (-proSettings.shadowBias * 30).dp.coerceIn(-32.dp, 32.dp))
-                            .size(14.dp)
-                            .clip(CircleShape)
-                            .background(PixelTextWhite)
-                    )
-                }
-
-                Text(
-                    text = "${if (proSettings.shadowBias >= 0) "+" else ""}${proSettings.shadowBias}",
-                    style = AuraCamTheme.cameraTypography.hudMetric,
-                    color = PixelTextWhite
+                    color = PixelYellowAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }

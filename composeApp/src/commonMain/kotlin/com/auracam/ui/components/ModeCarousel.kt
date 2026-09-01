@@ -6,7 +6,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -14,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,6 +28,9 @@ import androidx.compose.ui.unit.sp
 import com.auracam.camera.domain.CameraMode
 import com.auracam.ui.theme.*
 
+/**
+ * Editorial Flagship Mode Carousel with Crisp Illuminated Accent
+ */
 @Composable
 fun ModeCarousel(
     currentMode: CameraMode,
@@ -54,7 +55,7 @@ fun ModeCarousel(
 
     val listState = rememberLazyListState()
 
-    // Smooth auto-scroll centering to active mode
+    // Auto-scroll center active mode
     LaunchedEffect(currentMode) {
         val index = modes.indexOf(currentMode)
         if (index >= 0) {
@@ -65,21 +66,21 @@ fun ModeCarousel(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            .padding(vertical = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         LazyRow(
             state = listState,
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
-            contentPadding = PaddingValues(horizontal = 32.dp)
+            contentPadding = PaddingValues(horizontal = 48.dp)
         ) {
             itemsIndexed(modes) { index, mode ->
                 val isSelected = mode == currentMode
 
                 val scale = animateFloatAsState(
-                    targetValue = if (isSelected) 1.06f else 0.94f,
+                    targetValue = if (isSelected) 1.08f else 0.92f,
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioMediumBouncy,
                         stiffness = Spring.StiffnessLow
@@ -87,38 +88,35 @@ fun ModeCarousel(
                 )
 
                 val textColor = animateColorAsState(
-                    targetValue = if (isSelected) PixelPitchBlack else PixelTextSecondary,
+                    targetValue = if (isSelected) PixelYellowAccent else Color(0xFF8E929E),
                     animationSpec = tween(durationMillis = 180)
                 )
 
-                val bgColor = animateColorAsState(
-                    targetValue = if (isSelected) PixelYellowAccent else Color(0x331E1E1E),
-                    animationSpec = tween(durationMillis = 180)
-                )
-
-                val borderColor = animateColorAsState(
-                    targetValue = if (isSelected) PixelYellowAccent else Color(0x22FFFFFF),
-                    animationSpec = tween(durationMillis = 180)
-                )
-
-                Box(
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier
                         .scale(scale.value)
-                        .clip(CircleShape)
-                        .background(bgColor.value)
-                        .border(1.dp, borderColor.value, CircleShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { onModeSelected(mode) }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(horizontal = 4.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = mode.displayName,
+                        text = mode.displayName.uppercase(),
                         color = textColor.value,
-                        fontSize = 14.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        fontSize = 13.sp,
+                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                        letterSpacing = 0.6.sp
+                    )
+
+                    // Luminous accent dot indicator under selected mode
+                    Box(
+                        modifier = Modifier
+                            .size(if (isSelected) 4.dp else 0.dp)
+                            .clip(CircleShape)
+                            .background(PixelYellowAccent)
                     )
                 }
             }
