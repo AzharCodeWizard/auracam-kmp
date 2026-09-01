@@ -1,42 +1,41 @@
-# BRIEFING — 2026-08-29T13:42:00Z
+# BRIEFING — 2026-09-01T22:48:10+05:30
 
 ## Mission
-Survey the entire AuraCam KMP codebase for Requirement R1 (Pixel Material 3 Expressive Design & Viewfinder Aesthetics), analyze theme, styling, viewfinder HUD overlays, pill containers, frosted glass blur, top/bottom bars, icons, grids, typography, and produce a structured survey analysis report.
+Investigate the existing camera capture architecture in AuraCam across common and Android source sets to design Samsung Galaxy Director-style Dual Recording (concurrent dual streaming).
 
 ## 🔒 My Identity
 - Archetype: Explorer
-- Roles: Codebase inspection, Gap analysis, Architectural survey for M3 Expressive & Viewfinder Aesthetics
+- Roles: Camera Architecture Investigation & Dual Streaming Synthesis
 - Working directory: /Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_1
-- Original parent: c32e91be-9579-45a8-8cc7-d872b4308f7e
-- Milestone: Survey & Investigation (Requirement R1)
+- Original parent: 222c721e-0e70-4197-b87d-14499bfc2b04
+- Milestone: Survey & Architecture Discovery
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement
-- Inspect theme, typography, color, shape, and styling definitions in shared & composeApp
-- Examine viewfinder screen layout, HUD overlays, pill containers, frosted glass blur backgrounds, top/bottom bar structures, icons, framing grid overlays, and high-contrast typography
-- Identify existing implementation vs gaps/enhancements required for authentic Google Pixel M3 Expressive design tokens, pill containers, frosted glass blur, and typography
-- Output comprehensive report to `survey_m3_aesthetics.md` and handoff report to `handoff.md`
+- Read-only investigation — do NOT implement or modify source code
+- Write outputs to /Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_1/
+- Produce survey_camera.md and handoff.md
 
 ## Current Parent
-- Conversation ID: c32e91be-9579-45a8-8cc7-d872b4308f7e
-- Updated: 2026-08-29T13:42:00Z
+- Conversation ID: 222c721e-0e70-4197-b87d-14499bfc2b04
+- Updated: 2026-09-01T22:48:10+05:30
 
 ## Investigation State
 - **Explored paths**:
-  - `composeApp/build.gradle.kts`, `gradle/libs.versions.toml`, `shared/build.gradle.kts`
-  - `composeApp/src/commonMain/kotlin/com/auracam/ui/theme/AuraCamTheme.kt`
-  - `composeApp/src/commonMain/kotlin/com/auracam/ui/screens/ViewfinderScreen.kt`, `SettingsScreen.kt`
-  - `composeApp/src/commonMain/kotlin/com/auracam/ui/components/ViewfinderOverlay.kt`, `FocusBracketOverlay.kt`, `ZoomSelector.kt`, `ModeCarousel.kt`, `ShutterRow.kt`, `QuickSettingsDialog.kt`, `ProControlsSheet.kt`, `GalleryPreviewSheet.kt`, `CameraPreview.kt`
-  - `composeApp/src/androidMain/kotlin/.../MainActivity.kt`, `CameraPreview.android.kt`
-  - `shared/src/commonMain/.../CameraModels.kt`, `CameraEnums.kt`, `SensorLeveler.kt`, `ComputationalPipeline.kt`
-  - `shared/src/commonTest/.../CameraEngineTest.kt`
-- **Key findings**: Complete gap analysis and architectural blueprints generated for R1 theming, high-contrast typography with shadows & tabular figures, frosted glass tokens, decoupled viewfinder layout, and expressive pill containers.
-- **Unexplored areas**: None for R1 scope.
+  - `shared/src/commonMain/kotlin/com/auracam/camera/domain/` (`CameraEngine.kt`, `BaseCameraEngine.kt`, `CameraEnums.kt`, `CameraModels.kt`)
+  - `shared/src/androidMain/kotlin/com/auracam/camera/domain/AndroidCameraEngine.kt`
+  - `composeApp/src/commonMain/kotlin/com/auracam/ui/components/` (`CameraPreview.kt`, `DualVlogLayer.kt`, `FilterDrawer.kt`, `ModeCarousel.kt`, `ViewfinderControls.kt`, `Glass.kt`)
+  - `composeApp/src/androidMain/kotlin/com/auracam/ui/components/CameraPreview.android.kt`
+  - `composeApp/src/commonMain/kotlin/com/auracam/ui/screens/ViewfinderScreen.kt`
+  - `composeApp/src/commonMain/kotlin/com/auracam/ui/App.kt`
+  - `shared/src/commonTest/kotlin/com/auracam/` (`BaseCameraEngineTest.kt`, `CameraEngineTest.kt`)
+- **Key findings**:
+  - Complete architectural mapping of CameraX 1.4.1 concurrent camera integration, lifecycle binding, dual preview routing, mode carousel state management, live tone filters, and combined video recording requirements.
+- **Unexplored areas**: None for survey scope.
 
 ## Key Decisions Made
-- Authored full survey report `survey_m3_aesthetics.md`.
-- Authored 5-component handoff report `handoff.md`.
+- Authored comprehensive survey report at `survey_camera.md`.
+- Authored 5-component handoff report at `handoff.md`.
 
 ## Artifact Index
-- `/Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_1/survey_m3_aesthetics.md` — Comprehensive survey report on M3 aesthetics & viewfinder UI
+- `/Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_1/survey_camera.md` — Comprehensive camera architecture and dual streaming investigation report
 - `/Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_1/handoff.md` — 5-component handoff report

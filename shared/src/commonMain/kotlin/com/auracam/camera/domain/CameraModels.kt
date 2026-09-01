@@ -134,3 +134,20 @@ data class HardwareQualityStatus(
     val toneMappingActive: Boolean = true,
     val uncompressedJpegQuality: Int = 100
 )
+
+/**
+ * A subject the camera hardware is currently tracking.
+ *
+ * Populated from the Camera2 HAL's own scene analysis (`STATISTICS_FACE_DETECT_MODE`), not from
+ * software vision running on our side: the coordinates come back per-frame in `CaptureResult`
+ * already mapped into the preview viewport, and the same rectangle drives the AF/AE metering
+ * regions on the next request.
+ */
+@Serializable
+data class TrackedSubject(
+    val bounds: NormalizedRect,
+    /** HAL confidence, 1..100. 0 when the device reports faces without a score. */
+    val score: Int = 0,
+    /** Which physical stream this subject was detected on. */
+    val onFrontStream: Boolean = false
+)

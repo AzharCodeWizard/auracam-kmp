@@ -1,17 +1,18 @@
-## 2026-08-29T13:39:30Z
-You are Explorer 1 for the AuraCam KMP Material 3 Expressive overhaul project.
-Working directory: /Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_1
+## 2026-09-01T17:15:14Z
+You are Explorer 1 for the AuraCam Samsung Galaxy Director-style Dual Recording project.
+Your working directory: /Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_1
 Project root: /Users/azhar/.gemini/antigravity/scratch/auracam-kmp
-Original Request location: /Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/ORIGINAL_REQUEST.md
+Original request file: /Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/ORIGINAL_REQUEST.md
 
-Task:
-Read ORIGINAL_REQUEST.md. Survey the entire AuraCam KMP codebase specifically for Requirement R1: Pixel Material 3 Expressive Design & Viewfinder Aesthetics.
-1. Inspect all theme, typography, color, shape, and styling definitions (e.g., in shared and composeApp).
-2. Examine the viewfinder screen layout, HUD overlays, pill containers, frosted glass blur backgrounds, top/bottom bar structures, icons, framing grid overlays, and high-contrast typography.
-3. Identify existing implementation vs gaps/enhancements required to achieve authentic Google Pixel M3 Expressive design tokens, pill containers, frosted glass blur, and typography.
-4. Document all source file paths, class/composable names, and concrete recommendations.
+Please read /Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/ORIGINAL_REQUEST.md first.
 
-Output:
-Write your full analysis report to /Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_1/survey_m3_aesthetics.md
-Write your handoff report to /Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_1/handoff.md
-Send a completion message back with summary and artifact path.
+Your mission:
+Investigate the existing camera capture architecture in AuraCam across common and Android source sets.
+Focus areas:
+1. Current camera session architecture, lifecycle, preview pipelines, Camera2/CameraX/multi-camera implementation, and view models.
+2. How dual streaming (Front + Rear camera feeds simultaneously) can be supported on Android (e.g. `CameraManager.getConcurrentCameraIds()`, dual CameraDevice / CaptureSession configurations, SurfaceTexture/Surface preview routing).
+3. State management for camera modes (how Dual Recording / Vlog mode fits into the existing mode carousel and state machine).
+4. Identify existing classes, files, interfaces, and extension points.
+
+Write your comprehensive findings and recommendations to `/Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_1/survey_camera.md` and write a handoff report at `/Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_1/handoff.md`.
+Send a message when finished.

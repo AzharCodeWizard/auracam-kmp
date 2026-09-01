@@ -1,75 +1,111 @@
-# Project: AuraCam KMP — Google Pixel Material 3 Expressive Overhaul
+# Project: AuraCam Director-Style Dual Recording (Vlog Mode)
 
 ## Architecture
-AuraCam KMP is a Kotlin Multiplatform camera application targeting Android (via CameraX & Jetpack Compose) and Desktop (Compose Multiplatform mock engine & test harness).
-- `shared`: Multiplatform business logic, state models (`CameraUiState`, `CameraSettings`, `ExifMetadata`, `HistogramData`), audio/haptics contracts (`SoundAndHaptics`), and desktop test suite.
-- `composeApp`: Android and desktop UI layer containing Compose components (`AuraCamTheme`, `ViewfinderScreen`, `ModeCarousel`, `ZoomSelector`, `DualExposureSliders`, `ProControlsSheet`, `HistogramViewer`, `GalleryPreviewSheet`).
+AuraCam is a Kotlin Multiplatform (KMP) camera application built on Compose Multiplatform, CameraX 1.4.1 + Camera2 Interop (Android), and reactive Coroutines/StateFlow.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ Compose Multiplatform UI (`composeApp`)                               │
+│  ├── ViewfinderScreen (Stage, Overlay hierarchy, Clutter suppression)   │
+│  ├── DirectorDualRecordingOverlay                                      │
+│  │    ├── DirectorControlIsland (Frosted glass capsule: Layout, Swap,  │
+│  │    │                          Filter)                               │
+│  │    ├── 50/50 Split View (Edge-to-edge halves, 1dp divider, swap)    │
+│  │    ├── Movable PiP View (16:9 rounded rect, 4-corner magnetic snap) │
+│  │    └── Synchronous Live Tone Filter Layer (Real Tone, Vibrant, etc.)│
+│  └── Shutter & Mode Controls (ModeCarousel with DUAL_VLOG)             │
+└────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ Shared Camera Domain & State Engine (`shared`)                         │
+│  ├── CameraEngine (Interface: StateFlows for mode, layout, filter, etc)│
+│  ├── BaseCameraEngine (Common reactive state machine & simulations)    │
+│  └── CameraEnums & Models (DualVlogLayout, ColorProfile, etc.)         │
+└────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ Android Hardware Platform Layer (`shared/src/androidMain`)             │
+│  ├── PlatformCameraEngine (CameraX ConcurrentCamera + Camera2 Interop) │
+│  ├── Primary & Secondary PreviewView bindings                          │
+│  └── Combined Video Recording Pipeline (Single MP4 + Sync Audio)       │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | M3 Expressive Design Tokens & Palette | Pixel Camera authentic color schemes, high-contrast dark theme, expressive container tokens | M1 | Survey 1 (R1) |
-| 2 | Frosted Glass Blur & Pill Containers | `pixelGlass` modifier, blur backgrounds, pill containers with subtle stroke and elevation | M1 | Survey 1 (R1) |
-| 3 | High-Contrast Typography & Leveler | Tabular numbers, drop shadows for viewfinder legibility, dual-axis 3D leveler indicator | M1 | Survey 1 (R1) |
-| 4 | Authentic Shutter Button & Viewfinder HUD | Layered spring depression shutter button, top/bottom bar layout, framing grid overlays | M1 | Survey 1 (R1) |
-| 5 | Mode Carousel Scroll Snapping | Centered snapping mode carousel with spring deceleration physics and tactile mode change haptics | M2 | Survey 2 (R2) |
-| 6 | Zoom Selector Dial & Spring Transitions | Quick preset pills (.5x, 1x, 2x, 5x, 10x) expanding into continuous ruler dial with micro-haptic ticks | M2 | Survey 2 (R2) |
-| 7 | Dual Exposure Sliders (Sun EV & Moon Shadows) | Sun EV (warm gold) and Moon Shadows (cool white) sliders with 48dp touch targets, magnetic 0.0 zero-detent, and auto-dismiss | M2 | Survey 2 (R2) |
-| 8 | Pro Controls Bottom Sheet Motion | Fluid spring expand/collapse transitions, sliding tab indicator capsule, and drag handle | M2 | Survey 2 (R2) |
-| 9 | Pro Controls Tactile Sliders & Manual Controls | Tactile `PixelProSlider` for ISO, Shutter, Focus, WB, and EV with snap ticks and indicator animations | M3 | Survey 3 (R3) |
-| 10 | Real-Time Live RGB / Luminance Histogram Graph | Smooth cubic bezier area curves, linear gradient fills, highlight/shadow clipping indicators, RGB/Luma toggles | M3 | Survey 3 (R3) |
-| 11 | In-App Gallery Viewer Polish & EXIF Details Card | High-res photo display, expandable Google Photos / Pixel-style M3 Expressive EXIF card, metadata pills | M3 | Survey 3 (R3) |
-| 12 | Native Share Sheet Integration | Robust Android Intent integration for sharing captured photos directly from gallery sheet | M3 | Survey 3 (R3) |
-| 13 | Automated Test Suite Verification | Multiplatform unit & UI tests passing via `./gradlew :shared:desktopTest` | M4 | Survey 3 (R4) |
-| 14 | Physical Device Deployment & Launch | Clean build & install via `./gradlew :composeApp:installDebug` on connected Android device | M4 | Survey 3 (R4) |
-| 15 | UI Screen Capture & Visual Polish Verification | Launch `MainActivity`, capture device screen via `adb exec-out screencap`, verify visual rendering | M4 | Survey 3 (R4) |
+| 1 | Dual Vlog Domain State | StateFlows and methods for `DualVlogLayout` and `isDualStreamSwapped` in `CameraEngine` & `BaseCameraEngine` | M1 | survey |
+| 2 | Concurrent Camera Management | Dual camera binding, fallback handling, and surface lifecycle management in `AndroidCameraEngine` | M1 | survey |
+| 3 | Samsung-Style 50/50 Split View | Edge-to-edge 50% top and 50% bottom halves with 0 wasted bezel space, 1dp frosted divider, and center floating swap button | M2 | ORIGINAL_REQUEST §R1 |
+| 4 | Clean Movable PiP Mode | Primary stream full screen, secondary stream in floating 16:9 / 4:3 rounded rectangle with 4-corner magnetic snap (TL, TR, BL, BR) and 1-tap swap | M2 | ORIGINAL_REQUEST §R2 |
+| 5 | Top Director Control Island | Floating frosted glass capsule with layout toggle `[ 🌓 Split | 🔲 PiP ]`, stream swap `[ ⇄ Swap ]`, and tone filter button `[ ✨ Filter ]` | M2 | ORIGINAL_REQUEST §R3 |
+| 6 | Viewfinder Clutter Auto-Hiding | Auto-suppression of framing grids, 3D horizon leveler, exposure zebra clipping, and focus peaking in Dual Recording mode | M2 | ORIGINAL_REQUEST §R3 |
+| 7 | Synchronous Live Tone Filters | Real-time color grading across both camera feeds simultaneously for Real Tone, Vibrant, Cinematic Warm, Monochrome, and Natural | M3 | ORIGINAL_REQUEST §R3 |
+| 8 | Inline Filter Drawer Integration | Quick-select drawer integrated with Director Island showing preview chips for 5 flagship tone profiles | M3 | ORIGINAL_REQUEST §R3 |
+| 9 | Single Combined MP4 Recording | Composite layout (Split 50/50 or PiP) recorded into single high-definition MP4 file with synchronized microphone audio | M4 | ORIGINAL_REQUEST §R4 |
+| 10 | MediaStore Export & Metadata | Recorded MP4 exported cleanly to `DCIM/AuraCam` with video resolution, duration, and thumbnail generation | M4 | ORIGINAL_REQUEST §R4 |
+| 11 | Multiplatform Unit Test Suite | Comprehensive unit tests in `BaseCameraEngineTest` and UI test suite passing with 0 errors via `./gradlew testDebugUnitTest` | M5 | ORIGINAL_REQUEST §Verification |
+| 12 | Physical Device Deployment | Debug APK build and deployment via ADB to Nothing Phone (2a) (`./gradlew :composeApp:installDebug`), verified via screen capture | M5 | ORIGINAL_REQUEST §Verification |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| 1 | M1: Pixel M3 Expressive Design & Viewfinder Aesthetics | Features 1, 2, 3, 4: AuraCamTheme, typography, pixelGlass, Viewfinder HUD, leveler, shutter button | none | IN_PROGRESS |
-| 2 | M2: Fluid Spring Motion & Tactile Micro-Interactions | Features 5, 6, 7, 8: Mode Carousel snapping, Zoom Dial/presets, Dual Exposure sliders, bottom sheet spring physics | M1 | PLANNED |
-| 3 | M3: Pro Controls Sheet, Real-Time Histogram & Gallery EXIF | Features 9, 10, 11, 12: Tactile pro sliders, Bezier curve live histogram, Gallery EXIF card, Native Share | M1, M2 | PLANNED |
-| 4 | M4: Automated Build, Desktop Tests, Android Device Install & Screen Capture | Features 13, 14, 15: Gradle test suite, debug install to physical device, launch activity, screen capture verification | M1, M2, M3 | PLANNED |
+| M1 | Domain & Dual Camera State | `shared` domain contracts, reactive state flows, `AndroidCameraEngine` concurrent lifecycle & swap bindings | none | PLANNED |
+| M2 | Director Viewfinder UI | 50/50 Split View, Movable PiP with magnetic snapping, Director Control Island, and clutter auto-hiding | M1 | PLANNED |
+| M3 | Synchronous Live Tone Filters | Color matrix / shader grading across both feeds simultaneously and inline drawer | M1, M2 | PLANNED |
+| M4 | Single Combined MP4 Recording | Unified composite recording pipeline with synchronized microphone audio | M1, M2, M3 | PLANNED |
+| M5 | E2E Verification & Device Deployment | Gradle unit tests, device build/install on Nothing Phone (2a), screencap validation | M1, M2, M3, M4 | PLANNED |
 
 ## Interface Contracts
-### `CameraUiState` ↔ UI Components
-- State: `CameraUiState` exposes `zoomRatio`, `exposureCompensation`, `shadowCompensation`, `activeCameraMode`, `proSettings`, `histogramData`, `lastCapturedPhoto`.
-- Events: `onZoomChanged(Float)`, `onExposureChanged(Float)`, `onShadowChanged(Float)`, `onModeSelected(CameraMode)`, `onProSettingChanged(...)`, `onCaptureClicked()`.
 
-### `SoundAndHaptics` Contract
-- `vibrateTick()`: micro-haptic on dial tick / slider step (API 29+ `EFFECT_TICK`).
-- `vibrateDetent()`: magnetic zero-snap detent click (API 29+ `EFFECT_CLICK` or heavy click).
-- `vibrateModeChange()`: mode switch feedback.
-- `vibrateLock()`: AE/AF lock confirmation.
+### Domain Interface: `CameraEngine`
+```kotlin
+package com.auracam.camera.domain
 
-## Production Hardening (M5)
-| # | Area | Change |
-|---|------|--------|
-| 16 | Runtime permissions | `CameraPermissionState` expect/actual, permission-gated viewfinder, rationale + deep-link-to-settings screen, re-check on `ON_RESUME` |
-| 17 | Engine lifecycle | `CameraEngine.release()`; executors, sensors, orientation listener and CameraX bindings torn down on dispose |
-| 18 | Real sensors | Android leveler driven by `TYPE_ROTATION_VECTOR` with accelerometer fallback and low-pass smoothing; sine-wave simulation disabled on hardware platforms |
-| 19 | Use-case binding | Per-mode `bindToLifecycle` sets (video / analysis only in Pro) to avoid unsupported surface combinations; rebind skipped when the set is unchanged |
-| 20 | Capture correctness | Device zoom range from `ZoomState`, `targetRotation` from `OrientationEventListener`, capture re-entrancy guard, `RECORD_AUDIO` checked before `withAudioEnabled()` |
-| 21 | Honest metadata | EXIF timestamp from the real capture instant; GPS from `LocationManager` only when geotagging is enabled and permitted (off by default) |
-| 22 | Persisted settings | `PersistedSettingsStore` in `shared` with SharedPreferences / file / NSUserDefaults backends |
-| 23 | Release readiness | Keystore-or-env signing config, `verifyReleaseSigning` task, R8 rules for kotlinx.serialization and CameraX, adaptive launcher icon, backup rules, `VIBRATE` permission |
-| 24 | CI & lint | GitHub Actions (tests, lint, debug+release APK, Apple compile); `lint { abortOnError = true }` |
+enum class DualVlogLayout(val label: String) {
+    SPLIT_50_50("Split 50/50"),
+    PIP_RECT("PiP Window"),
+    PIP_CIRCLE("PiP Circle"),
+    SIDE_BY_SIDE("Side by Side")
+}
+
+interface CameraEngine {
+    // Existing StateFlows...
+    val dualVlogLayout: StateFlow<DualVlogLayout>
+    val isDualStreamSwapped: StateFlow<Boolean>
+    
+    fun setDualVlogLayout(layout: DualVlogLayout)
+    fun swapDualStreams()
+}
+```
+
+### UI Composable Contracts
+```kotlin
+@Composable
+fun DirectorDualRecordingOverlay(
+    engine: CameraEngine,
+    isRecording: Boolean,
+    colorProfile: ColorProfile,
+    onColorProfileSelected: (ColorProfile) -> Unit,
+    modifier: Modifier = Modifier
+)
+
+@Composable
+fun DirectorControlIsland(
+    layout: DualVlogLayout,
+    onLayoutSelected: (DualVlogLayout) -> Unit,
+    onSwapStreams: () -> Unit,
+    activeFilter: ColorProfile,
+    onFilterClick: () -> Unit,
+    modifier: Modifier = Modifier
+)
+```
 
 ## Code Layout
-- `shared/src/commonMain/kotlin/com/auracam/`:
-  - `domain/`: `CameraEngine.kt`, `SoundAndHaptics.kt`, `PlatformShare.kt`
-  - `model/`: `CameraMode.kt`, `CameraSettings.kt`, `ExifMetadata.kt`, `HistogramData.kt`
-- `composeApp/src/commonMain/kotlin/com/auracam/ui/`:
-  - `theme/`: `AuraCamTheme.kt`, `Color.kt`, `Type.kt`, `Shape.kt`
-  - `components/`:
-    - `Glass.kt`: `pixelGlass` modifier and frosted glass styling
-    - `ModeCarousel.kt`: Snapping mode selector
-    - `ZoomSelector.kt`: Preset pills & continuous dial
-    - `DualExposureSliders.kt`: Sun EV and Moon Shadow sliders with zero detents
-    - `ProControlsSheet.kt`: Manual controls and parameter sliders
-    - `HistogramViewer.kt`: Bezier curve RGB/Luma live graph
-    - `GalleryPreviewSheet.kt`: Gallery viewer & EXIF metadata card
-    - `ViewfinderControls.kt`: Shutter button, HUD top/bottom bars, leveler
-  - `screen/`: `ViewfinderScreen.kt`
-- `shared/src/desktopTest/kotlin/com/auracam/`: Unit tests and state verification
+- `shared/src/commonMain/kotlin/com/auracam/camera/domain/` — Domain models, enums, engine interfaces.
+- `shared/src/androidMain/kotlin/com/auracam/camera/domain/` — Android CameraX + Camera2 engine implementation.
+- `composeApp/src/commonMain/kotlin/com/auracam/ui/components/` — Viewfinder composables, Director overlay, PiP, Split view, Filter drawer.
+- `composeApp/src/commonMain/kotlin/com/auracam/ui/screens/` — `ViewfinderScreen.kt` root stage and HUD layers.
+- `shared/src/commonTest/kotlin/com/auracam/` — Multiplatform unit tests.

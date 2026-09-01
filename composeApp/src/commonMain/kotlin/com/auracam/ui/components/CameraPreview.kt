@@ -9,9 +9,3 @@ expect fun CameraPreview(
     engine: CameraEngine,
     modifier: Modifier = Modifier
 )
-
-@Composable
-expect fun SecondaryCameraPreview(
-    engine: CameraEngine,
-    modifier: Modifier = Modifier
-)

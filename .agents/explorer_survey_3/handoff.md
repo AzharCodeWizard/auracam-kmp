@@ -1,100 +1,80 @@
-# Handoff Report — Explorer 3: Survey of Requirements R3 & R4
+# Handoff Report: Video Recording, Tone Filtering, Audio Sync & Verification
+
+**Agent**: Explorer 3  
+**Target Path**: `/Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_3/handoff.md`  
+**Working Directory**: `/Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_3`  
+**Handoff Type**: Hard (Task complete)
+
+---
 
 ## 1. Observation
 
-### 1.1 Source Code Inspection
-- **Pro Controls Bottom Sheet**:
-  - File: `composeApp/src/commonMain/kotlin/com/auracam/ui/components/ProControlsSheet.kt`
-  - Lines 27–34 define `enum class ProTab(val title: String) { ISO, SHUTTER, FOCUS, EV, WB, HISTOGRAM }`.
-  - Lines 138–363 implement `IsoControl`, `ShutterControl`, `FocusControl`, `EvControl`, and `WbControl` using standard Material 3 `Slider` and `AssistChip`.
-  - Lines 365–408 implement `HistogramViewer(histogramData: HistogramData)` drawing 32 discrete vertical rectangle bins with fixed opacity on Canvas.
-- **Histogram Data Pipeline**:
-  - File: `shared/src/commonMain/kotlin/com/auracam/camera/domain/CameraModels.kt` (lines 45–51) defines `HistogramData(val redBins: List<Int>, val greenBins: List<Int>, val blueBins: List<Int>, val luminanceBins: List<Int>)`.
-  - File: `shared/src/androidMain/kotlin/com/auracam/camera/domain/AndroidCameraEngine.kt` (lines 150–185) sub-samples CameraX image proxy pixels (`step = 4`), calculates 32 bins per channel and luminance ($Y = 0.299R + 0.587G + 0.114B$), normalizes to max bin ($100$), and updates `_liveHistogram`.
-  - File: `shared/src/commonMain/kotlin/com/auracam/camera/domain/BaseCameraEngine.kt` (lines 83–124) runs background sensor simulation fluctuating bins sinusoidally with `proSettings.evBias`.
-- **In-App Gallery Viewer & Native Share**:
-  - File: `composeApp/src/commonMain/kotlin/com/auracam/ui/components/GalleryPreviewSheet.kt` (lines 27–205) renders top bar with Share & EXIF buttons, image viewport with simulated camera placeholder icon, and EXIF metadata card.
-  - File: `composeApp/src/androidMain/kotlin/com/auracam/ui/util/PlatformShare.android.kt` (lines 11–28) implements `rememberPlatformShare()` creating `Intent(Intent.ACTION_SEND)` with `media.uri` and `Intent.createChooser()`.
-  - File: `shared/src/commonMain/kotlin/com/auracam/processing/ComputationalPipeline.kt` (lines 85–146) implements `generateExif` and `formatPixelWatermark`.
+### Video Recording & Camera Engine Implementation
+- `shared/src/androidMain/kotlin/com/auracam/camera/domain/AndroidCameraEngine.kt`:
+  - Lines 69-70: `private var videoCapture: VideoCapture<Recorder>? = null; private var activeRecording: Recording? = null`
+  - Lines 420-442: `videoCapture` is initialized with CameraX `Recorder.Builder().setQualitySelector(...)`.
+  - Lines 466-473: `primaryGroup` contains `preview` + `videoCapture`, while `secondaryGroup` contains only `secondaryPreview`.
+  - Lines 1299-1388: `toggleVideoRecording()` calls `video.output.prepareRecording(ctx, mediaStoreOutput)`, checks `Manifest.permission.RECORD_AUDIO`, invokes `pending.withAudioEnabled()`, and handles `VideoRecordEvent.Start`, `Status`, `Finalize`.
+- `shared/src/commonMain/kotlin/com/auracam/camera/domain/CameraEnums.kt`:
+  - Lines 80-90: `enum class ColorProfile` defines `NATURAL`, `REAL_TONE`, `VIBRANT`, `CINEMATIC_WARM`, `HIGH_CONTRAST_MONO`, etc.
+  - Lines 149-154: `enum class DualVlogLayout` defines `PIP_RECT`, `PIP_CIRCLE`, `SPLIT_50_50`, `SIDE_BY_SIDE`.
+- `composeApp/src/commonMain/kotlin/com/auracam/ui/components/DualVlogLayer.kt`:
+  - Lines 52-336: `DualVlogOverlay` composable provides Split 50/50 and PiP rendering with dragging and corner snapping.
+- `composeApp/src/commonMain/kotlin/com/auracam/ui/components/FilterDrawer.kt`:
+  - Lines 41-153: `FilterDrawer` displays interactive tone filter chips.
 
-### 1.2 Build & Test Tool Execution Results
-- **Desktop Tests**:
-  - Command: `./gradlew :shared:desktopTest`
-  - Output: `BUILD SUCCESSFUL in 9s`, `4 actionable tasks: 4 up-to-date`, `CameraEngineTest` passed completely.
-- **Debug APK Build**:
-  - Command: `./gradlew :composeApp:assembleDebug`
-  - Output: `BUILD SUCCESSFUL in 4s`, `58 actionable tasks: 58 up-to-date`, output at `composeApp/build/outputs/apk/debug/composeApp-debug.apk`.
-- **Connected Physical Device**:
-  - Command: `adb devices`
-  - Output: `00118655F004928 device`
-  - Command: `adb shell getprop ro.product.model; adb shell getprop ro.build.version.release`
-  - Output: Model `A015` (Nothing), OS version `16`.
-- **Installed App & Activity**:
-  - Command: `adb shell pm list packages | grep auracam`
-  - Output: `package:com.auracam.pixelcamera.debug`
-  - Launch Command: `adb shell am start -n com.auracam.pixelcamera.debug/com.auracam.app.MainActivity`
-  - Screen Capture: Captured via `adb shell screencap -p /sdcard/auracam_survey_screen2.png && adb pull /sdcard/auracam_survey_screen2.png`, confirming live viewfinder running on hardware device.
+### Test Suite Execution
+- Running `./gradlew testDebugUnitTest` and `./gradlew :shared:desktopTest`:
+  - Both commands execute successfully with exit code 0.
+  - `31/31` unit tests pass across 5 test classes (`BaseCameraEngineTest`, `CameraEngineTest`, `ExifMetadataTest`, `PixelViewfinderAestheticsTest`, `SettingsStoreTest`).
+
+### Connected Device State
+- Command `/Users/azhar/Library/Android/sdk/platform-tools/adb devices -l` confirmed device attached:
+  - `00118655F004928 device usb:1048576X product:TetrisIND model:A015 device:Tetris transport_id:3` (Nothing Phone 2a).
+  - Package `com.auracam.pixelcamera.debug` is present on device.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Pro Controls Sheet**:
-   - *Observation*: `ProControlsSheet.kt` uses standard `androidx.compose.material3.Slider` for manual parameters (ISO, Shutter, Focus, EV, WB) without custom tick indicators, indicator thumb animations, or haptic feedback on step changes.
-   - *Inference*: Upgrading these controls to a custom Material 3 Expressive slider (`PixelProSlider`) with spring-damped indicators, step ticks, and `PlatformSoundAndHaptics.vibrateSnap()` will deliver the authentic Google Pixel tactile camera experience.
-2. **Histogram Visuals**:
-   - *Observation*: The data pipeline in `AndroidCameraEngine.kt` and `BaseCameraEngine.kt` already computes 32 bins for R, G, B, and Luminance, but `HistogramViewer` only draws flat rectangles and lacks a Luminance / RGB toggle.
-   - *Inference*: The underlying data pipeline is sound and complete; only the UI layer (`HistogramViewer`) needs to be refactored into smooth cubic bezier curves (`Path.cubicTo`) with gradient fills, mode switching (RGB / Luminance / Split), and clipping indicators.
-3. **Gallery Viewer & Real Image Display**:
-   - *Observation*: `GalleryPreviewSheet.kt` displays a placeholder camera icon in the image viewport rather than loading the photo bitmap from `media.uri`. The EXIF card is a static list beneath the viewport.
-   - *Inference*: Adding bitmap decoding support (with graceful fallback) and transforming the EXIF card into an expandable bottom card with M3 Expressive metadata badges will fulfill Requirement R3.
-4. **Build & Physical Device Pipeline**:
-   - *Observation*: `./gradlew :shared:desktopTest`, `./gradlew :composeApp:assembleDebug`, `adb devices`, and `adb shell am start` all execute cleanly without errors on the connected Android 16 device.
-   - *Inference*: Requirement R4 automated build, testing, and deployment pipeline is fully functional and ready for downstream implementation phases.
+1. **Current Video Pipeline Limitation**: In `AndroidCameraEngine.kt`, `videoCapture` is strictly attached to `primaryGroup`. When Dual Vlog mode is selected, the secondary camera feed is displayed via `secondaryPreviewView` on the UI layer, but `VideoCapture` only records the primary camera's sensor output.
+2. **Single Combined Output Requirement**: R4 requires recording a single MP4 video file capturing the exact active layout (Split 50/50 or PiP) and synchronized audio. Therefore, recording must composite both camera feeds (via OpenGL ES / Surface composition or dual-stream encoding) into a single `MediaCodec` video encoder input surface.
+3. **Tone Filters Synchronicity**: Live Tone Filters (`Real Tone`, `Vibrant`, `Cinematic Warm`, `Monochrome`, `Natural`) must apply uniformly across both feeds and be baked into the recorded video. This is achieved by binding the active `ColorProfile` to Compose `ColorFilter` matrices on the preview layer and passing identical color matrices / GLSL uniforms into the video compositor shader.
+4. **Audio Synchronization**: Audio recording via `AudioRecord` (PCM 16-bit) feeding a `MediaCodec` AAC encoder and muxed via `MediaMuxer` with nanosecond presentation timestamp synchronization ensures seamless lip-sync in the output MP4.
+5. **Quality Assurance**: Unit test suites (`./gradlew testDebugUnitTest`) provide baseline coverage for engine state machines and models, while physical deployment (`./gradlew :composeApp:installDebug`) enables direct verification on the Nothing Phone (2a).
 
 ---
 
 ## 3. Caveats
 
-- **iOS Camera Hardware**: iOS actual camera engine (`IosCameraEngine.kt`) and AVFoundation capture pipeline was surveyed statically; hardware verification was performed exclusively on Desktop JVM and Android physical hardware.
-- **Image Decoding on Desktop**: On Desktop JVM, decoding local image files from disk or simulated byte arrays requires platform image loaders or `org.jetbrains.compose.resources` / Skia `Image.makeFromEncoded`.
+- **Hardware Concurrent Camera Limits**: On hardware devices that do not support full 4K concurrent multi-camera sessions, dual recording should target 1080p (FHD 30/60fps) or 720p to maintain smooth 60fps viewfinder rendering and thermal stability.
+- **Audio Permission Graceful Degradation**: If `RECORD_AUDIO` permission is withheld by the user, recording continues cleanly without audio, and the viewfinder HUD displays a clear status notice.
 
 ---
 
 ## 4. Conclusion
 
-The architecture of AuraCam KMP is well-structured and modular. The data models and processing pipelines for Pro settings, histograms, and EXIF metadata in `:shared` are in place. The build and test systems are operational with passing unit tests (`:shared:desktopTest`), functional debug builds (`:composeApp:assembleDebug`), and an active physical Android device (`00118655F004928`).
-
-To achieve full Google Pixel Material 3 Expressive visual polish (Requirement R3), the implementation plan should prioritize:
-1. **`PixelProSlider`**: Expressive tactile sliders with snap ticks, active badge indicators, and haptic feedback for ISO, Shutter, Focus, EV, and WB.
-2. **`PixelLiveHistogram`**: Smooth cubic bezier curve rendering with linear gradient fills, multi-mode channel toggling (RGB Overlaid, Luminance, RGB Split), and exposure clipping markers.
-3. **`PixelGalleryViewer`**: Decoded bitmap image display, pinch-to-zoom gestures, and an expandable M3 Expressive EXIF card with metadata badges.
+The existing AuraCam codebase provides robust foundational components (CameraX bindings, Compose multiplatform UI, reactive StateFlow architecture, and 100% passing test suites). Implementing Samsung Galaxy Director-Style Dual Recording requires:
+1. Upgrading `AndroidCameraEngine` / adding `CompositeVideoRecorder` to composite both camera feeds (50/50 Split and PiP) and live tone filters into a single 1080p MP4.
+2. Synchronizing Compose preview color filtering with recording color grading.
+3. Enhancing `DualVlogOverlay` to provide the top Director Control Island (layout toggle, swap button, filter wand) and auto-hide non-essential viewfinder elements.
+4. Verifying via `./gradlew testDebugUnitTest` and deploying to the connected Nothing Phone (2a) via `./gradlew :composeApp:installDebug`.
 
 ---
 
 ## 5. Verification Method
 
-To independently verify these findings:
-1. **Run Desktop Unit Tests**:
+To independently reproduce and verify all findings:
+1. **Run Unit Tests**:
    ```bash
+   ./gradlew testDebugUnitTest
    ./gradlew :shared:desktopTest
    ```
-   *Expected result*: Build success with all 5 unit tests in `CameraEngineTest.kt` passing.
-2. **Build Debug APK**:
+   *Expected*: 31 tests pass with 0 errors.
+2. **Verify Connected Device**:
    ```bash
-   ./gradlew :composeApp:assembleDebug
+   /Users/azhar/Library/Android/sdk/platform-tools/adb devices -l
    ```
-   *Expected result*: Build success with debug APK generated at `composeApp/build/outputs/apk/debug/composeApp-debug.apk`.
-3. **Check Connected Android Device**:
-   ```bash
-   adb devices
-   ```
-   *Expected result*: Device `00118655F004928` listed in `device` state.
-4. **Deploy, Launch & Capture Screen**:
-   ```bash
-   ./gradlew :composeApp:installDebug
-   adb shell am start -n com.auracam.pixelcamera.debug/com.auracam.app.MainActivity
-   adb shell screencap -p /sdcard/auracam_verify.png
-   adb pull /sdcard/auracam_verify.png .
-   ```
-   *Expected result*: App launches in edge-to-edge full screen with live camera preview and M3 UI controls visible in pulled screenshot.
+   *Expected*: Device `00118655F004928` (Nothing Phone 2a) is attached.
+3. **Inspect Survey Report**:
+   - View `/Users/azhar/.gemini/antigravity/scratch/auracam-kmp/.agents/explorer_survey_3/survey_recording.md`

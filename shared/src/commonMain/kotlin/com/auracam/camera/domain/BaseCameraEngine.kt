@@ -106,6 +106,22 @@ abstract class BaseCameraEngine(
     protected val _galleryList = MutableStateFlow<List<CapturedMedia>>(emptyList())
     override val galleryList: StateFlow<List<CapturedMedia>> = _galleryList.asStateFlow()
 
+    protected val _dualVlogLayout = MutableStateFlow(DualVlogLayout.SPLIT_50_50)
+    override val dualVlogLayout: StateFlow<DualVlogLayout> = _dualVlogLayout.asStateFlow()
+
+    protected val _isDualStreamSwapped = MutableStateFlow(false)
+    override val isDualStreamSwapped: StateFlow<Boolean> = _isDualStreamSwapped.asStateFlow()
+
+    protected val _dualVlogPipRect =
+        MutableStateFlow(DualVlogNormalizedGeometry.pipRectFor(PipCorner.TOP_RIGHT))
+    override val dualVlogPipRect: StateFlow<NormalizedRect> = _dualVlogPipRect.asStateFlow()
+
+    protected val _trackedSubjects = MutableStateFlow<List<TrackedSubject>>(emptyList())
+    override val trackedSubjects: StateFlow<List<TrackedSubject>> = _trackedSubjects.asStateFlow()
+
+    protected val _subjectTrackingEnabled = MutableStateFlow(true)
+    override val subjectTrackingEnabled: StateFlow<Boolean> = _subjectTrackingEnabled.asStateFlow()
+
     private var recordingJob: Job? = null
     private var sensorSimulationJob: Job? = null
 
@@ -250,6 +266,23 @@ abstract class BaseCameraEngine(
         _videoStabilizationEnabled.value = enabled
     }
 
+    override fun setDualVlogLayout(layout: DualVlogLayout) {
+        _dualVlogLayout.value = layout
+    }
+
+    override fun swapDualStreams() {
+        _isDualStreamSwapped.value = !_isDualStreamSwapped.value
+    }
+
+    override fun setDualVlogPipRect(rect: NormalizedRect) {
+        _dualVlogPipRect.value = rect.coerceInsideViewport()
+    }
+
+    override fun setSubjectTrackingEnabled(enabled: Boolean) {
+        _subjectTrackingEnabled.value = enabled
+        if (!enabled) _trackedSubjects.value = emptyList()
+    }
+
     override suspend fun refreshGallery() = Unit
 
     override suspend fun loadExif(media: CapturedMedia): CapturedMedia = media
@@ -328,8 +361,37 @@ abstract class BaseCameraEngine(
     override suspend fun toggleVideoRecording() {
         if (_isRecording.value) {
             recordingJob?.cancel()
+            recordingJob = null
             _isRecording.value = false
+            val duration = _recordingDurationSeconds.value
             _recordingDurationSeconds.value = 0
+
+            val timestamp = Clock.System.now().toEpochMilliseconds()
+            val media = CapturedMedia(
+                id = "VID_${timestamp}",
+                uri = "content://media/external/video/media/${timestamp}",
+                fileName = "VID_${timestamp}.mp4",
+                timestamp = timestamp,
+                width = 1920,
+                height = 1080,
+                format = CaptureFormat.JPEG,
+                mode = _cameraMode.value,
+                exif = ComputationalPipeline.generateExif(
+                    mode = _cameraMode.value,
+                    lens = _currentLens.value,
+                    zoom = _zoomRatio.value,
+                    proSettings = _proSettings.value,
+                    captureFormat = _captureFormat.value,
+                    ultraHdr = false,
+                    capturedAtEpochMillis = timestamp
+                ).copy(
+                    format = "video/mp4",
+                    resolution = "1920 × 1080"
+                ),
+                simulatedPreviewSeed = (timestamp % 1000).toInt()
+            )
+            _recentMedia.value = media
+            _galleryList.value = listOf(media) + _galleryList.value
         } else {
             _isRecording.value = true
             _recordingDurationSeconds.value = 0

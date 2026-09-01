@@ -1,43 +1,34 @@
-# E2E Test Infra: AuraCam KMP Material 3 Expressive Overhaul
+# E2E Test Infra: AuraCam Director-Style Dual Recording
 
 ## Test Philosophy
-- Multi-tier verification: Unit/Desktop test coverage + UI component state verification + End-to-End device deployment and visual rendering confirmation.
-- Automated Gradle test execution: `./gradlew :shared:desktopTest`
-- Automated device installation: `./gradlew :composeApp:installDebug`
-- Real-time device execution verification: `adb shell am start -n com.auracam.pixelcamera.debug/com.auracam.app.MainActivity` and screen capture inspection.
+- Multi-tier requirement-driven verification covering domain state, UI layout geometry, tone filter mathematical matrices, video composition, and physical device deployment.
+- Methodology: Unit test validation + ADB physical device verification on Nothing Phone (2a).
 
-## Feature Inventory & Test Coverage
-| # | Feature | Tier 1 (Unit/State) | Tier 2 (Boundary/Edge) | Tier 3 (Integration) | Tier 4 (Device E2E) |
-|---|---------|:-------------------:|:----------------------:|:--------------------:|:-------------------:|
-| 1 | M3 Expressive Tokens & Theme | ✓ | ✓ | ✓ | ✓ |
-| 2 | Frosted Glass Blur & Pill Containers | ✓ | ✓ | ✓ | ✓ |
-| 3 | High-Contrast Typography & Leveler | ✓ | ✓ | ✓ | ✓ |
-| 4 | Shutter Button & Viewfinder HUD | ✓ | ✓ | ✓ | ✓ |
-| 5 | Mode Carousel Scroll Snapping | ✓ | ✓ | ✓ | ✓ |
-| 6 | Zoom Selector Dial & Presets | ✓ | ✓ | ✓ | ✓ |
-| 7 | Dual Exposure Sliders (Sun & Moon) | ✓ | ✓ | ✓ | ✓ |
-| 8 | Pro Controls Bottom Sheet Motion | ✓ | ✓ | ✓ | ✓ |
-| 9 | Pro Controls Tactile Sliders | ✓ | ✓ | ✓ | ✓ |
-| 10 | Live RGB / Luminance Histogram Graph | ✓ | ✓ | ✓ | ✓ |
-| 11 | Gallery Viewer & EXIF Details Card | ✓ | ✓ | ✓ | ✓ |
-| 12 | Native Share Sheet Integration | ✓ | ✓ | ✓ | ✓ |
-| 13 | Multiplatform Compilation & Desktop Tests | ✓ | ✓ | ✓ | ✓ |
-| 14 | Physical Device Deployment | - | - | - | ✓ |
-| 15 | Screen Capture & Visual Verification | - | - | - | ✓ |
-| 16 | Engine State Machine (zoom clamp, lens select, capture, recording, release) | ✓ | ✓ | - | - |
-| 17 | EXIF Metadata (real timestamp, GPS hemispheres, auto-ISO per mode) | ✓ | ✓ | - | - |
-| 18 | Settings Persistence (defaults, round-trip, corrupt data, forward compat) | ✓ | ✓ | - | - |
+## Feature Inventory
+| # | Feature | Source (requirement) | Tier 1 | Tier 2 | Tier 3 |
+|---|---------|---------------------|:------:|:------:|:------:|
+| 1 | Dual Vlog Domain State & Stream Swap | ORIGINAL_REQUEST §R1 | 5 | 5 | ✓ |
+| 2 | Samsung-Style 50/50 Split View Geometry | ORIGINAL_REQUEST §R1 | 5 | 5 | ✓ |
+| 3 | Movable PiP Mode & Magnetic Corner Snapping | ORIGINAL_REQUEST §R2 | 5 | 5 | ✓ |
+| 4 | Director Control Island & Clutter Hiding | ORIGINAL_REQUEST §R3 | 5 | 5 | ✓ |
+| 5 | Synchronous Live Tone Filters | ORIGINAL_REQUEST §R3 | 5 | 5 | ✓ |
+| 6 | Single Combined Video Recording & Audio Sync | ORIGINAL_REQUEST §R4 | 5 | 5 | ✓ |
 
-## Automated Suites
-| Command | Covers |
-|---|---|
-| `./gradlew :shared:desktopTest` | `CameraEngineTest`, `PixelViewfinderAestheticsTest`, `BaseCameraEngineTest`, `ExifMetadataTest`, `SettingsStoreTest` |
-| `./gradlew :composeApp:desktopTest` | Compose module compilation and any UI-layer tests |
-| `./gradlew :composeApp:lintRelease` | Android lint, `abortOnError = true` |
-| `./gradlew :composeApp:assembleRelease` | R8 shrink + resource shrink over the release variant |
-| `./gradlew :composeApp:verifyReleaseSigning` | Fails when release would fall back to the debug key |
-| `./gradlew :shared:compileKotlinIosSimulatorArm64` | Apple target compilation |
+## Test Architecture
+- Unit test runner: `./gradlew testDebugUnitTest` and `./gradlew :shared:desktopTest`
+- Physical device deployment: `./gradlew :composeApp:installDebug` -> ADB launch `MainActivity` on Nothing Phone (2a) -> screen capture validation.
 
-## Gaps
-- No instrumented (`androidTest`) UI tests; device verification is still manual via `installDebug` + `adb exec-out screencap`.
-- Compose UI tests are not wired up (`compose.uiTest` dependency not declared).
+## Real-World Application Scenarios (Tier 4)
+| # | Scenario | Features Exercised | Complexity |
+|---|----------|--------------------|------------|
+| 1 | Vlog Mode Transition: Switch to DUAL_VLOG -> Verify 50/50 Split active, clutter hidden | F1, F2, F4 | Medium |
+| 2 | Stream Interchange: Tap swap button -> Verify top/bottom streams swap | F1, F2 | Low |
+| 3 | PiP Drag & Snap: Switch to PiP -> Drag PiP card -> Verify spring snap to TR, TL, BR, BL | F3, F4 | High |
+| 4 | Synchronous Tone Grade: Open Filter Drawer -> Select Cinematic Warm -> Verify both streams graded | F4, F5 | Medium |
+| 5 | Dual Video Recording: Start recording in Split mode -> Toggle PiP -> Stop recording -> Verify single MP4 with audio | F1, F2, F3, F5, F6 | High |
+
+## Coverage Thresholds
+- Tier 1: ≥5 per feature
+- Tier 2: ≥5 per feature (where boundaries exist)
+- Tier 3: pairwise coverage of major feature interactions
+- Tier 4: ≥5 realistic application scenarios

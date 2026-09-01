@@ -47,6 +47,7 @@ fun ViewfinderScreen(
     }
 
     val cameraMode by engine.cameraMode.collectAsState()
+    val isDualVlogMode = cameraMode == CameraMode.DUAL_VLOG
     val currentLens by engine.currentLens.collectAsState()
     val flashMode by engine.flashMode.collectAsState()
     val aspectRatio by engine.aspectRatio.collectAsState()
@@ -123,60 +124,68 @@ fun ViewfinderScreen(
             )
 
             // 2. Main Viewfinder Stage with Live Stream & Dynamic Overlays
+            // Dual Vlog goes edge-to-edge: R1 asks for zero wasted bezel, and the composited
+            // 50/50 split only reads as "even halves" when the stage is the whole viewport.
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp),
+                    .then(if (isDualVlogMode) Modifier else Modifier.padding(horizontal = 8.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                val ratioModifier = when (aspectRatio) {
-                    AspectRatio.RATIO_4_3 -> Modifier.aspectRatio(3f / 4f)
-                    AspectRatio.RATIO_16_9 -> Modifier.aspectRatio(9f / 16f)
-                    AspectRatio.RATIO_1_1 -> Modifier.aspectRatio(1f)
-                    AspectRatio.RATIO_FULL -> Modifier.fillMaxSize()
+                val ratioModifier = when {
+                    isDualVlogMode -> Modifier.fillMaxSize()
+                    aspectRatio == AspectRatio.RATIO_4_3 -> Modifier.aspectRatio(3f / 4f)
+                    aspectRatio == AspectRatio.RATIO_16_9 -> Modifier.aspectRatio(9f / 16f)
+                    aspectRatio == AspectRatio.RATIO_1_1 -> Modifier.aspectRatio(1f)
+                    else -> Modifier.fillMaxSize()
                 }
 
                 BoxWithConstraints(
                     modifier = ratioModifier
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(28.dp))
+                        .then(
+                            if (isDualVlogMode) Modifier else Modifier.clip(RoundedCornerShape(28.dp))
+                        )
                         .background(PixelDarkBackground)
-                        .pointerInput(Unit) {
-                            detectTransformGestures { _, _, zoom, _ ->
-                                if (zoom != 1f) {
-                                    val currentZ = engine.zoomRatio.value
-                                    val newZoom = (currentZ * zoom).coerceIn(0.5f, 10.0f)
-                                    engine.setZoom((newZoom * 100).roundToInt() / 100f)
-                                }
-                            }
-                        }
-                        .pointerInput(Unit) {
-                            detectTapGestures { offset ->
-                                showQuickSettings = false
-                                showFilterDrawer = false
-                                val normX = offset.x / size.width
-                                val normY = offset.y / size.height
-                                engine.setFocusPoint(normX, normY)
-                                soundAndHaptics.vibrateSnap()
-                            }
-                        }
                 ) {
                     // A. Live Hardware Camera Viewfinder Stream
                     CameraPreview(
                         engine = engine,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(cameraMode) {
+                                if (cameraMode != CameraMode.DUAL_VLOG) {
+                                    detectTransformGestures { _, _, zoom, _ ->
+                                        if (zoom != 1f) {
+                                            val currentZ = engine.zoomRatio.value
+                                            val newZoom = (currentZ * zoom).coerceIn(0.5f, 10.0f)
+                                            engine.setZoom((newZoom * 100).roundToInt() / 100f)
+                                        }
+                                    }
+                                }
+                            }
+                            .pointerInput(cameraMode) {
+                                if (cameraMode != CameraMode.DUAL_VLOG) {
+                                    detectTapGestures { offset ->
+                                        showQuickSettings = false
+                                        showFilterDrawer = false
+                                        val normX = offset.x / size.width
+                                        val normY = offset.y / size.height
+                                        engine.setFocusPoint(normX, normY)
+                                        soundAndHaptics.vibrateSnap()
+                                    }
+                                }
+                            }
                     )
 
                     // Multi-Stream Dual Vlog / Director's View Overlay
                     if (cameraMode == CameraMode.DUAL_VLOG) {
-                        DualVlogOverlay(
+                        DirectorDualRecordingOverlay(
                             engine = engine,
                             isRecording = isRecording,
-                            onFlipStream = {
-                                val nextLens = if (currentLens == LensFacing.FRONT) LensFacing.BACK_WIDE else LensFacing.FRONT
-                                engine.setLens(nextLens)
-                            },
+                            colorProfile = colorProfile,
+                            onColorProfileSelected = { engine.setColorProfile(it) },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -200,14 +209,14 @@ fun ViewfinderScreen(
                                 modifier = Modifier.align(Alignment.Center)
                             )
                         }
-                    }
 
-                    // E. Focus Bracket & Exposure Sliders
-                    FocusBracketOverlay(
-                        focusPoint = focusPoint,
-                        proSettings = proSettings,
-                        onProSettingsChange = { engine.updateProSettings(it) }
-                    )
+                        // E. Focus Bracket & Exposure Sliders
+                        FocusBracketOverlay(
+                            focusPoint = focusPoint,
+                            proSettings = proSettings,
+                            onProSettingsChange = { engine.updateProSettings(it) }
+                        )
+                    }
 
                     // F. Center Countdown Overlay
                     CountdownOverlay(
@@ -308,7 +317,9 @@ fun ViewfinderScreen(
             }
 
             // 3. Floating Zoom Selector Bar
-            Box(
+            // Hidden in Dual Vlog (R3 clutter suppression): the zoom presets apply to the rear
+            // lens only, so they are misleading while two feeds are on screen.
+            if (!isDualVlogMode) Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp),

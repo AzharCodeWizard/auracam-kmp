@@ -1,39 +1,38 @@
 package com.auracam.camera.domain
 
 import android.Manifest
-import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CaptureRequest
-import android.util.Range
+import android.graphics.ImageFormat
+import android.hardware.camera2.CameraMetadata
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
+import android.hardware.camera2.params.Face
 import android.location.Location
 import android.location.LocationManager
+import android.media.ImageReader
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.database.Cursor
+import android.graphics.Rect
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
+import android.util.Size
 import android.view.OrientationEventListener
 import android.view.Surface
-import android.util.Size
-import androidx.annotation.OptIn
-import androidx.camera.camera2.interop.Camera2CameraControl
-import androidx.camera.camera2.interop.Camera2CameraInfo
-import androidx.camera.camera2.interop.CaptureRequestOptions
-import androidx.camera.camera2.interop.ExperimentalCamera2Interop
-import androidx.camera.core.*
-import androidx.camera.core.resolutionselector.AspectRatioStrategy
-import androidx.camera.core.resolutionselector.ResolutionSelector
-import androidx.camera.core.resolutionselector.ResolutionStrategy
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.video.*
-import androidx.camera.video.VideoCapture
-import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
-import androidx.lifecycle.LifecycleOwner
+import com.auracam.camera.camera2.CameraHardware
+import com.auracam.camera.camera2.Camera2Stream
+import com.auracam.camera.camera2.CaptureRequestTuner
+import com.auracam.camera.camera2.CompositeRecorder
+import com.auracam.camera.camera2.MediaStoreWriter
+import com.auracam.camera.gl.CameraCompositor
+import com.auracam.camera.gl.CenterCrop
+import com.auracam.camera.gl.StreamSlot
 import com.auracam.location.GeoLocation
 import com.auracam.location.PlatformLocationProvider
 import com.auracam.processing.ComputationalPipeline
@@ -44,120 +43,178 @@ import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 private const val TAG = "AuraCamEngine"
 
+/**
+ * Android camera engine built directly on Camera2.
+ *
+ * Every stream the app shows or records goes through one GL compositor:
+ *   camera(s) -> SurfaceTexture -> [CameraCompositor] -> preview surface (+ encoder surface)
+ *
+ * That single path is what makes Dual Vlog behave. Layout, swap and tone filters are uniforms on
+ * the composited frame, so changing them never reconfigures a capture session, and the recorded
+ * MP4 is the same composite the viewfinder shows rather than a separate re-derivation of it.
+ */
 actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
+
     private var context: Context? = null
-    private var lifecycleOwner: LifecycleOwner? = null
-    private var previewView: PreviewView? = null
+    private var hardware: CameraHardware? = null
 
-    private var cameraProvider: ProcessCameraProvider? = null
-    private var camera: Camera? = null
-    private var secondaryCamera: Camera? = null
-    private var preview: Preview? = null
-    private var secondaryPreview: Preview? = null
-    private var secondaryPreviewView: PreviewView? = null
-    private var imageCapture: ImageCapture? = null
-    private var imageAnalysis: ImageAnalysis? = null
-    private var videoCapture: VideoCapture<Recorder>? = null
-    private var activeRecording: Recording? = null
+    private val compositor = CameraCompositor()
+    private var recorder: CompositeRecorder? = null
 
-    private val cameraExecutor = Executors.newSingleThreadExecutor()
-    private val analysisExecutor = Executors.newSingleThreadExecutor()
+    private var rearStream: Camera2Stream? = null
+    private var frontStream: Camera2Stream? = null
+
+    private var previewSurface: Surface? = null
+    private var attachedSurface: Surface? = null
+    private var previewWidth = 0
+    private var previewHeight = 0
+    private var displayRotationDegrees = 0
+
+    private var stillReader: ImageReader? = null
+    private var analysisReader: ImageReader? = null
+
+    // HAL callbacks land on [cameraHandler]; session orchestration runs on [sessionHandler].
+    // They must be different threads: closing a device blocks until the HAL confirms on the
+    // callback thread, so orchestrating from that same thread would deadlock.
+    private var cameraThread: HandlerThread? = null
+    private var cameraHandler: Handler? = null
+    private var sessionThread: HandlerThread? = null
+    private var sessionHandler: Handler? = null
 
     private val sensorLeveler = PlatformSensorLeveler()
     private val locationProvider = PlatformLocationProvider()
     private var orientationListener: OrientationEventListener? = null
 
     private val captureInFlight = AtomicBoolean(false)
+    private var recordingTicker: Job? = null
+
+    private var activeLens: CameraHardware.Lens? = null
+    private var secondaryLens: CameraHardware.Lens? = null
+    private var sessionSignature: String? = null
+
+    /** Bumped on every (re)configuration so callbacks from a superseded attempt are dropped. */
+    private var configureGeneration = 0
+
+    private var meteringPoint: Pair<Float, Float>? = null
+    private var lastTrackingEmitNanos = 0L
+
+    /** Latched subject box per stream, in that stream's own sensor-normalized coordinates. */
+    private var rearTrackingBox: FloatArray? = null
+    private var frontTrackingBox: FloatArray? = null
+
+    /** Configured stream dimensions, needed to reproduce the compositor's center-crop. */
+    private var rearStreamSize: Size? = null
+    private var frontStreamSize: Size? = null
 
     private val histogramRed = IntArray(BIN_COUNT)
     private val histogramGreen = IntArray(BIN_COUNT)
     private val histogramBlue = IntArray(BIN_COUNT)
     private val histogramLuma = IntArray(BIN_COUNT)
-    private var histogramRowBuffer = ByteArray(0)
     private var lastHistogramEmitNanos = 0L
     private var lumaGrid = ByteArray(0)
     private var lumaGridWidth = 0
     private var lumaGridHeight = 0
 
-    private var boundSignature: String? = null
-
-    private data class LensOption(
-        val cameraId: String,
-        val selector: CameraSelector,
-        val isFront: Boolean,
-        val baseZoom: Float,
-        val minRatio: Float,
-        val maxRatio: Float,
-        val rawSupported: Boolean
-    )
-
-    private var backLenses: List<LensOption> = emptyList()
-    private var frontLens: LensOption? = null
-    private var activeLens: LensOption? = null
-    private var rawSupported: Boolean = false
-    private var manualSensorSupported: Boolean = false
-    private var deviceSupportsVideoStabilization: Boolean = false
-    private var isoRange: Range<Int>? = null
-    private var exposureTimeRange: Range<Long>? = null
-    private var minFocusDistance: Float = 0f
-
     @Volatile
     private var released = false
 
-    fun bindToLifecycle(context: Context, lifecycleOwner: LifecycleOwner, previewView: PreviewView) {
+    // ---------------------------------------------------------------------------------------
+    // Preview attachment
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Attaches the viewfinder's output surface. Called when the `SurfaceView` becomes available
+     * and whenever it is resized; the surface's own lifecycle is the camera's lifecycle, so
+     * backgrounding the app tears the session down without a `LifecycleOwner`.
+     */
+    fun attachPreview(context: Context, surface: Surface, width: Int, height: Int, rotation: Int) {
         if (released) return
         val appContext = context.applicationContext
+        val firstAttach = this.context == null
         this.context = appContext
-        this.lifecycleOwner = lifecycleOwner
-        this.previewView = previewView
+        this.previewSurface = surface
+        this.previewWidth = width
+        this.previewHeight = height
+        val rotationDegrees = when (rotation) {
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+        val rotationChanged = this.displayRotationDegrees != rotationDegrees
+        this.displayRotationDegrees = rotationDegrees
 
-        locationProvider.initialize(appContext)
-        coroutineScope.launch { refreshGallery() }
-        startSensorLeveler(appContext)
-        startOrientationListener(appContext)
-
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(appContext)
-        cameraProviderFuture.addListener({
-            if (released) return@addListener
-            try {
-                val provider = cameraProviderFuture.get()
-                cameraProvider = provider
-                discoverLenses(provider)
-                startCamera()
-            } catch (e: Exception) {
-                Log.e(TAG, "Camera provider unavailable", e)
-                _captureProgress.value = CaptureProgress(
-                    CaptureState.IDLE, 0f, "Camera unavailable on this device"
-                )
+        if (firstAttach) {
+            locationProvider.initialize(appContext)
+            startSensorLeveler(appContext)
+            startOrientationListener(appContext)
+            coroutineScope.launch { refreshGallery() }
+        }
+        if (hardware == null) {
+            hardware = runCatching { CameraHardware(appContext) }.getOrElse {
+                Log.e(TAG, "Camera hardware unavailable", it)
+                _captureProgress.value =
+                    CaptureProgress(CaptureState.IDLE, 0f, "Camera unavailable on this device")
+                return
             }
-        }, ContextCompat.getMainExecutor(appContext))
-    }
+            _availableZoomPresets.value = hardware?.zoomPresets() ?: listOf(1.0f)
+        }
+        ensureCameraThread()
+        compositor.start()
+        compositor.setPreviewOutput(surface, width, height)
 
-    fun bindSecondaryPreview(previewView: PreviewView) {
-        if (released) return
-        this.secondaryPreviewView = previewView
-        if (_cameraMode.value == CameraMode.DUAL_VLOG) {
-            boundSignature = null
-            startCamera()
+        // A resize (e.g. hiding the zoom bar when entering Dual Vlog) only changes the
+        // compositor's output geometry. Restarting the capture session here would race the
+        // in-flight configuration and leave a dead feed, so only a genuinely new surface
+        // reconfigures the cameras.
+        val surfaceChanged = attachedSurface !== surface
+        attachedSurface = surface
+        if (surfaceChanged || rearStream == null) {
+            configureSession(force = true)
+        } else {
+            if (rotationChanged) refreshStreamOrientation()
+            pushLayout()
         }
     }
 
-    fun unbindSecondaryPreview() {
-        this.secondaryPreviewView = null
-        this.secondaryPreview = null
-        this.secondaryCamera = null
-        if (_cameraMode.value == CameraMode.DUAL_VLOG) {
-            boundSignature = null
-            startCamera()
+    fun detachPreview() {
+        previewSurface = null
+        attachedSurface = null
+        compositor.setPreviewOutput(null, 0, 0)
+        sessionSignature = null
+        sessionHandler?.post { closeStreams() }
+    }
+
+    /** Re-applies texture rotation after a display rotation, without touching the session. */
+    private fun refreshStreamOrientation() {
+        rearStream?.lens?.let {
+            compositor.updateStreamOrientation(StreamSlot.REAR, textureRotationFor(it), it.isFront)
+        }
+        frontStream?.lens?.let {
+            compositor.updateStreamOrientation(StreamSlot.FRONT, textureRotationFor(it), it.isFront)
+        }
+        publishTrackedSubjects()
+    }
+
+    private fun ensureCameraThread() {
+        if (cameraHandler == null) {
+            val thread = HandlerThread("AuraCamCamera2").also { it.start() }
+            cameraThread = thread
+            cameraHandler = Handler(thread.looper)
+        }
+        if (sessionHandler == null) {
+            val thread = HandlerThread("AuraCamSession").also { it.start() }
+            sessionThread = thread
+            sessionHandler = Handler(thread.looper)
         }
     }
 
@@ -173,397 +230,367 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
         orientationListener = object : OrientationEventListener(context) {
             override fun onOrientationChanged(orientation: Int) {
                 if (orientation == ORIENTATION_UNKNOWN) return
-                val rotation = when {
-                    orientation >= 315 || orientation < 45 -> Surface.ROTATION_0
-                    orientation < 135 -> Surface.ROTATION_270
-                    orientation < 225 -> Surface.ROTATION_180
-                    else -> Surface.ROTATION_90
+                val degrees = when {
+                    orientation >= 315 || orientation < 45 -> 0
+                    orientation < 135 -> 90
+                    orientation < 225 -> 180
+                    else -> 270
                 }
-                imageCapture?.targetRotation = rotation
-                videoCapture?.targetRotation = rotation
-                imageAnalysis?.targetRotation = rotation
+                if (degrees != deviceOrientationDegrees) {
+                    deviceOrientationDegrees = degrees
+                }
             }
         }.also { if (it.canDetectOrientation()) it.enable() }
     }
 
+    @Volatile
+    private var deviceOrientationDegrees = 0
 
-    private data class LensDiscoveryResult(
-        val cameraId: String,
-        val facing: Int,
-        val focalLength: Float,
-        val zoomState: ZoomState?,
-        val rawSupported: Boolean
-    )
-
-    @OptIn(ExperimentalCamera2Interop::class)
-    private fun discoverLenses(provider: ProcessCameraProvider) {
-        val discovered = provider.availableCameraInfos.mapNotNull { info ->
-            runCatching {
-                val camera2 = Camera2CameraInfo.from(info)
-                val facing = camera2.getCameraCharacteristic(CameraCharacteristics.LENS_FACING) ?: return@runCatching null
-                val focal = camera2
-                    .getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
-                    ?.minOrNull() ?: return@runCatching null
-                val capabilities = camera2.getCameraCharacteristic(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
-                val rawSupported = capabilities?.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW) == true
-                val zoomState = info.zoomState.value
-                LensDiscoveryResult(
-                    cameraId = camera2.cameraId,
-                    facing = facing,
-                    focalLength = focal,
-                    zoomState = zoomState,
-                    rawSupported = rawSupported
-                )
-            }.getOrNull()
-        }
-
-        val entries = discovered.mapNotNull { result ->
-            LensDescriptor(
-                cameraId = result.cameraId,
-                isFront = result.facing == CameraCharacteristics.LENS_FACING_FRONT,
-                focalLength = result.focalLength,
-                minRatio = result.zoomState?.minZoomRatio ?: 1.0f,
-                maxRatio = result.zoomState?.maxZoomRatio ?: 1.0f,
-                rawSupported = result.rawSupported
-            )
-        }
-
-        Log.i(TAG, "Discovered cameras: $entries")
-
-        val back = entries.filter { !it.isFront }
-        val referenceFocal = back.maxByOrNull { it.focalLength }?.focalLength
-            ?: back.firstOrNull()?.focalLength
-
-        backLenses = if (referenceFocal == null || referenceFocal <= 0f) {
-            emptyList()
-        } else {
-            back.map { descriptor ->
-                LensOption(
-                    cameraId = descriptor.cameraId,
-                    selector = selectorForId(descriptor.cameraId),
-                    isFront = false,
-                    baseZoom = descriptor.focalLength / referenceFocal,
-                    minRatio = descriptor.minRatio,
-                    maxRatio = descriptor.maxRatio,
-                    rawSupported = descriptor.rawSupported
-                )
-            }.sortedBy { it.baseZoom }
-        }
-
-        frontLens = entries.firstOrNull { it.isFront }?.let { descriptor ->
-            LensOption(
-                cameraId = descriptor.cameraId,
-                selector = selectorForId(descriptor.cameraId),
-                isFront = true,
-                baseZoom = 1.0f,
-                minRatio = descriptor.minRatio,
-                maxRatio = descriptor.maxRatio,
-                rawSupported = descriptor.rawSupported
-            )
-        }
-
-        _availableZoomPresets.value = buildZoomPresets()
-        Log.i(TAG, "Back lenses: $backLenses, presets: ${_availableZoomPresets.value}")
-    }
-
-    private data class LensDescriptor(
-        val cameraId: String,
-        val isFront: Boolean,
-        val focalLength: Float,
-        val minRatio: Float,
-        val maxRatio: Float,
-        val rawSupported: Boolean
-    )
-
-    @OptIn(ExperimentalCamera2Interop::class)
-    private fun selectorForId(cameraId: String): CameraSelector =
-        CameraSelector.Builder()
-            .addCameraFilter { infos ->
-                infos.filter { Camera2CameraInfo.from(it).cameraId == cameraId }
-            }
-            .build()
-
-    private fun buildZoomPresets(): List<Float> {
-        val main = backLenses.lastOrNull { it.baseZoom >= 0.95f } ?: backLenses.lastOrNull()
-            ?: return listOf(1.0f)
-        val maxZoom = main.baseZoom * main.maxRatio
-        val presets = mutableListOf<Float>()
-        if (backLenses.any { it.baseZoom < 0.75f }) presets += 0.5f
-        presets += 1.0f
-        for (step in listOf(2.0f, 5.0f, 10.0f)) {
-            if (step <= maxZoom + 0.01f) presets += step
-        }
-        return presets.distinct()
-    }
-
-    private fun lensFor(zoom: Float): LensOption? {
-        if (backLenses.isEmpty()) return null
-        return backLenses.lastOrNull { it.baseZoom <= zoom + 0.05f } ?: backLenses.first()
-    }
-
-    private fun targetLens(): LensOption? =
-        if (_currentLens.value == LensFacing.FRONT) frontLens else lensFor(_zoomRatio.value)
-
-    private fun useCaseSignature(): String {
-        val facing = _currentLens.value
-        val pro = _proSettings.value
-        val isDual = _cameraMode.value == CameraMode.DUAL_VLOG && secondaryPreviewView != null
-        val analysis = _cameraMode.value == CameraMode.PRO ||
-            pro.focusPeakingEnabled || pro.zebraClippingEnabled
-        return "${if (isVideoMode(_cameraMode.value)) "video" else "photo"}|" +
-            "$analysis|$facing|${aspectGroup(_aspectRatio.value)}|dual=$isDual"
-    }
+    // ---------------------------------------------------------------------------------------
+    // Session configuration
+    // ---------------------------------------------------------------------------------------
 
     private fun isVideoMode(mode: CameraMode) =
         mode == CameraMode.VIDEO ||
-        mode == CameraMode.CINEMATIC ||
-        mode == CameraMode.DUAL_VLOG ||
-        mode == CameraMode.SLOW_MOTION ||
-        mode == CameraMode.TIME_LAPSE
+            mode == CameraMode.CINEMATIC ||
+            mode == CameraMode.DUAL_VLOG ||
+            mode == CameraMode.SLOW_MOTION ||
+            mode == CameraMode.TIME_LAPSE
 
-    fun startCamera() {
-        val provider = cameraProvider ?: return
-        val owner = lifecycleOwner ?: return
-        val pView = previewView ?: return
-        if (released) return
-
-        val signature = useCaseSignature()
-        if (signature == boundSignature && camera != null) return
-
-        val wantsVideo = isVideoMode(_cameraMode.value)
+    private fun wantsAnalysis(): Boolean {
         val pro = _proSettings.value
-        val wantsAnalysis = _cameraMode.value == CameraMode.PRO ||
-            pro.focusPeakingEnabled || pro.zebraClippingEnabled
+        return _cameraMode.value == CameraMode.PRO ||
+            pro.focusPeakingEnabled ||
+            pro.zebraClippingEnabled
+    }
 
-        try {
-            val selectedLens = targetLens()
-            val fallbackSelector = if (_currentLens.value == LensFacing.FRONT) {
-                CameraSelector.DEFAULT_FRONT_CAMERA
-            } else {
-                CameraSelector.DEFAULT_BACK_CAMERA
-            }
-            val requestedSelector = selectedLens?.selector ?: fallbackSelector
-            val cameraSelector = when {
-                provider.hasCamera(requestedSelector) -> requestedSelector
-                provider.hasCamera(fallbackSelector) -> fallbackSelector
-                provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
-                provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
-                else -> {
-                    Log.e(TAG, "No camera available")
-                    _captureProgress.value =
-                        CaptureProgress(CaptureState.IDLE, 0f, "No camera available")
-                    return
-                }
-            }
-            activeLens = selectedLens.takeIf { cameraSelector === requestedSelector }
-            rawSupported = activeLens?.rawSupported == true
+    private fun sessionSignature(): String {
+        val dual = _cameraMode.value == CameraMode.DUAL_VLOG
+        val lensId = if (dual) "dual" else targetLens()?.cameraId.orEmpty()
+        return listOf(
+            if (isVideoMode(_cameraMode.value)) "video" else "photo",
+            lensId,
+            aspectGroup(_aspectRatio.value),
+            _photoResolution.value.name,
+            wantsAnalysis().toString()
+        ).joinToString("|")
+    }
 
-            provider.unbindAll()
-            boundSignature = null
-
-            val rotation = pView.display?.rotation ?: Surface.ROTATION_0
-
-            val targetResSize = when (_photoResolution.value) {
-                PhotoResolution.HIGH_50MP -> Size(8160, 6120)
-                PhotoResolution.STANDARD_12MP -> Size(4080, 3060)
-                PhotoResolution.SAVER_8MP -> Size(3264, 2448)
-            }
-
-            val resolutionSelector = ResolutionSelector.Builder()
-                .setAspectRatioStrategy(aspectRatioStrategy())
-                .setResolutionStrategy(
-                    ResolutionStrategy(
-                        targetResSize,
-                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
-                    )
-                )
-                .setAllowedResolutionMode(ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE)
-                .build()
-
-            val isDualVlog = _cameraMode.value == CameraMode.DUAL_VLOG && secondaryPreviewView != null
-
-            preview = if (isDualVlog) {
-                Preview.Builder()
-                    .setTargetRotation(rotation)
-                    .build()
-                    .also { it.surfaceProvider = pView.surfaceProvider }
-            } else {
-                Preview.Builder()
-                    .setTargetRotation(rotation)
-                    .setResolutionSelector(resolutionSelector)
-                    .build()
-                    .also { it.surfaceProvider = pView.surfaceProvider }
-            }
-
-            imageCapture = if (isDualVlog) null else {
-                ImageCapture.Builder()
-                    .setTargetRotation(rotation)
-                    .setResolutionSelector(resolutionSelector)
-                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                    .setJpegQuality(100)
-                    .setFlashMode(toCameraXFlashMode(_flashMode.value))
-                    .build()
-            }
-
-            imageAnalysis = if (wantsAnalysis && !isDualVlog) {
-                ImageAnalysis.Builder()
-                    .setTargetRotation(rotation)
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                    .build()
-                    .also { it.setAnalyzer(analysisExecutor, ::processAnalysisFrame) }
-            } else {
-                null
-            }
-
-            videoCapture = if (wantsVideo) {
-                val targetQuality = when (_videoResolution.value) {
-                    VideoResolution.UHD_4K_60, VideoResolution.UHD_4K_30 -> Quality.UHD
-                    VideoResolution.FHD_1080P_60, VideoResolution.FHD_1080P_30 -> Quality.FHD
-                    VideoResolution.HD_720P_30 -> Quality.HD
-                }
-                val orderedQualities = when (targetQuality) {
-                    Quality.UHD -> listOf(Quality.UHD, Quality.FHD, Quality.HD, Quality.SD)
-                    Quality.FHD -> listOf(Quality.FHD, Quality.HD, Quality.SD)
-                    Quality.HD -> listOf(Quality.HD, Quality.SD)
-                    else -> listOf(Quality.FHD, Quality.HD, Quality.SD)
-                }
-                val recorder = Recorder.Builder()
-                    .setQualitySelector(
-                        QualitySelector.fromOrderedList(
-                            orderedQualities,
-                            FallbackStrategy.lowerQualityOrHigherThan(targetQuality)
-                        )
-                    )
-                    .build()
-                VideoCapture.withOutput(recorder).also { it.targetRotation = rotation }
-            } else {
-                null
-            }
-
-            // Dual Vlog / Multi-Stream Concurrent Camera Binding
-            val secondarySelector = if (_currentLens.value == LensFacing.FRONT) {
-                targetLens()?.selector ?: CameraSelector.DEFAULT_BACK_CAMERA
-            } else {
-                CameraSelector.DEFAULT_FRONT_CAMERA
-            }
-
-            if (isDualVlog && provider.hasCamera(secondarySelector)) {
-                val secView = secondaryPreviewView!!
-                val secRotation = secView.display?.rotation ?: Surface.ROTATION_0
-                secondaryPreview = Preview.Builder()
-                    .setTargetRotation(secRotation)
-                    .build()
-                    .also { it.surfaceProvider = secView.surfaceProvider }
-
-                val canBindConcurrent = runCatching {
-                    provider.availableConcurrentCameraInfos.any { it.size >= 2 }
-                }.getOrDefault(false)
-                Log.i(TAG, "Dual Vlog bind attempt: canBindConcurrent=$canBindConcurrent, concurrentGroups=${provider.availableConcurrentCameraInfos.size}")
-
-                if (canBindConcurrent) {
-                    try {
-                        val primaryGroup = UseCaseGroup.Builder()
-                            .addUseCase(preview!!)
-                            .apply { videoCapture?.let { addUseCase(it) } }
-                            .build()
-                        val secondaryGroup = UseCaseGroup.Builder()
-                            .addUseCase(secondaryPreview!!)
-                            .build()
-
-                        val primaryConfig = ConcurrentCamera.SingleCameraConfig(
-                            cameraSelector,
-                            primaryGroup,
-                            owner
-                        )
-                        val secondaryConfig = ConcurrentCamera.SingleCameraConfig(
-                            secondarySelector,
-                            secondaryGroup,
-                            owner
-                        )
-
-                        val concurrentCam = provider.bindToLifecycle(listOf(primaryConfig, secondaryConfig))
-                        camera = concurrentCam.cameras.firstOrNull()
-                        secondaryCamera = concurrentCam.cameras.getOrNull(1)
-                        boundSignature = signature
-                        readManualCapabilities()
-                        applyZoom(_zoomRatio.value)
-                        applyManualControls()
-                        if (_flashMode.value == FlashMode.TORCH) camera?.cameraControl?.enableTorch(true)
-                        return
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Concurrent camera binding failed on hardware, falling back to standard usecases", e)
-                    }
-                }
-            }
-
-            val useCases = listOfNotNull(preview, imageCapture, imageAnalysis, videoCapture)
-            camera = provider.bindToLifecycle(owner, cameraSelector, *useCases.toTypedArray())
-            boundSignature = signature
-
-            readManualCapabilities()
-            applyZoom(_zoomRatio.value)
-            applyManualControls()
-            if (_flashMode.value == FlashMode.TORCH) camera?.cameraControl?.enableTorch(true)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to bind camera use cases", e)
-            boundSignature = null
-            camera = null
-            _captureProgress.value =
-                CaptureProgress(CaptureState.IDLE, 0f, "Camera configuration unsupported")
+    private fun targetLens(): CameraHardware.Lens? {
+        val hw = hardware ?: return null
+        return if (_currentLens.value == LensFacing.FRONT) {
+            hw.frontLens ?: hw.backLensFor(_zoomRatio.value)
+        } else {
+            hw.backLensFor(_zoomRatio.value) ?: hw.frontLens
         }
     }
 
-    private var opticalStabilizationSupported: Boolean = false
+    private fun aspectGroup(ratio: AspectRatio): String = when (ratio) {
+        AspectRatio.RATIO_16_9, AspectRatio.RATIO_FULL -> "wide"
+        AspectRatio.RATIO_1_1 -> "square"
+        else -> "standard"
+    }
 
-    @OptIn(ExperimentalCamera2Interop::class)
-    private fun readManualCapabilities() {
-        val info = camera?.cameraInfo ?: return
-        val camera2 = runCatching { Camera2CameraInfo.from(info) }.getOrNull() ?: return
-        val capabilities = camera2.getCameraCharacteristic(
-            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES
-        )
-        manualSensorSupported = capabilities?.contains(
-            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR
-        ) == true
-        isoRange = camera2.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
-        exposureTimeRange = camera2.getCameraCharacteristic(
-            CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE
-        )
-        minFocusDistance = camera2.getCameraCharacteristic(
-            CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE
-        ) ?: 0f
-        deviceSupportsVideoStabilization = camera2.getCameraCharacteristic(
-            CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES
-        )?.contains(CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_ON) == true
-        _videoStabilizationSupported.value = deviceSupportsVideoStabilization
-        _manualControlsSupported.value = manualSensorSupported
+    private fun targetAspect(): Float = when (_aspectRatio.value) {
+        AspectRatio.RATIO_16_9, AspectRatio.RATIO_FULL -> 16f / 9f
+        AspectRatio.RATIO_1_1 -> 1f
+        else -> 4f / 3f
+    }
 
-        val oisModes = camera2.getCameraCharacteristic(
-            CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION
-        )
-        opticalStabilizationSupported = oisModes?.contains(
-            CameraCharacteristics.LENS_OPTICAL_STABILIZATION_MODE_ON
-        ) == true
+    /**
+     * Clockwise rotation needed to show a stream upright in the viewfinder.
+     *
+     * This uses the *display* rotation, not the accelerometer's idea of which way the handset is
+     * tilted: the viewfinder is laid out by the window, so a user filming while lying down must
+     * still see an upright preview. The physical orientation only decides how captures are
+     * tagged, in [jpegOrientation].
+     *
+     * The front camera gets the extra `360 - result` step because its image is mirrored for
+     * display; without it a 270°-mounted front sensor lands 180° away from the rear sensor.
+     */
+    private fun displayRotationFor(lens: CameraHardware.Lens): Int {
+        val device = displayRotationDegrees
+        return if (lens.isFront) {
+            val raw = (lens.sensorOrientation + device) % 360
+            (360 - raw) % 360
+        } else {
+            (lens.sensorOrientation - device + 360) % 360
+        }
+    }
 
-        val hwLevel = camera2.getCameraCharacteristic(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)
-        val hwLevelName = when (hwLevel) {
-            CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3 -> "LEVEL 3 (Pro Master)"
-            CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL -> "FULL (Hardware)"
-            CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED -> "LIMITED"
-            else -> "LEGACY"
+    /**
+     * Rotation the compositor applies to texture coordinates.
+     *
+     * Texture space has Y up, so a positive rotation of the coordinates makes the sampled image
+     * appear rotated clockwise by the same amount — the texture rotation equals the display
+     * rotation rather than opposing it.
+     */
+    private fun textureRotationFor(lens: CameraHardware.Lens): Int = displayRotationFor(lens)
+
+    /**
+     * Serialises all session (re)configuration onto the session thread so opens and closes never
+     * overlap, and so the UI thread never blocks on the HAL.
+     */
+    private fun configureSession(force: Boolean = false) {
+        if (released) return
+        ensureCameraThread()
+        sessionHandler?.post { configureSessionNow(force) }
+    }
+
+    private fun configureSessionNow(force: Boolean) {
+        if (released) return
+        val ctx = context ?: return
+        val hw = hardware ?: return
+        previewSurface ?: return
+        if (!hasPermission(ctx, Manifest.permission.CAMERA)) return
+
+        val signature = sessionSignature()
+        if (!force && signature == sessionSignature && rearStream?.isReady == true) return
+
+        closeStreams()
+        val generation = ++configureGeneration
+
+        val dual = _cameraMode.value == CameraMode.DUAL_VLOG
+        if (dual) configureDualSession(ctx, hw, generation)
+        else configureSingleSession(ctx, hw, generation)
+        sessionSignature = signature
+        pushLayout()
+    }
+
+    /** True while [generation] is still the configuration the engine is acting on. */
+    private fun isCurrent(generation: Int) = !released && generation == configureGeneration
+
+    private fun configureSingleSession(ctx: Context, hw: CameraHardware, generation: Int) {
+        val lens = targetLens() ?: run {
+            _captureProgress.value = CaptureProgress(CaptureState.IDLE, 0f, "No camera available")
+            return
+        }
+        activeLens = lens
+        secondaryLens = null
+
+        val aspect = targetAspect()
+        val previewSize = hw.bestPreviewSize(lens, Size(1920, 1080), aspect)
+        rearStreamSize = previewSize
+        frontStreamSize = null
+        val input = compositor.acquireInputSurface(
+            StreamSlot.REAR,
+            previewSize.width,
+            previewSize.height,
+            textureRotationFor(lens),
+            lens.isFront
+        ) ?: return
+        compositor.releaseInputSurface(StreamSlot.FRONT)
+
+        val extras = mutableListOf<Surface>()
+        stillReader = createStillReader(hw, lens, aspect)?.also { extras += it.surface }
+        analysisReader = if (wantsAnalysis()) {
+            createAnalysisReader(hw, lens, aspect)?.also { extras += it.surface }
+        } else {
+            null
         }
 
-        val sensorSize = camera2.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
-        val maxMp = if (sensorSize != null) {
-            (sensorSize.width * sensorSize.height) / 1_000_000f
-        } else 50.0f
+        val stream = Camera2Stream(ctx, lens, requireHandler())
+        stream.onResult = { result -> onCaptureResult(result, lens) }
+        rearStream = stream
+        stream.openDevice(
+            onOpened = {
+                if (!isCurrent(generation)) return@openDevice
+                stream.configure(
+                    repeating = listOfNotNull(input, analysisReader?.surface),
+                    extra = listOfNotNull(stillReader?.surface),
+                    frame = buildFrame(lens),
+                    onReady = { applyPostConfigureState() },
+                    onError = { message -> reportSessionError(message) }
+                )
+            },
+            onError = { message -> reportSessionError(message) }
+        )
+    }
 
+    /**
+     * Dual Vlog opens both physical cameras. The ids come from the HAL's own concurrent-camera
+     * list; when the device advertises none, we fall back to a single stream rather than showing
+     * a dead half.
+     */
+    private fun configureDualSession(ctx: Context, hw: CameraHardware, generation: Int) {
+        val pair = hw.concurrentPair
+        if (pair == null) {
+            Log.w(TAG, "Device reports no concurrent camera pair; Dual Vlog falls back to one feed")
+            _captureProgress.value = CaptureProgress(
+                CaptureState.IDLE, 0f, "Dual camera unsupported on this device"
+            )
+            configureSingleSession(ctx, hw, generation)
+            return
+        }
+        val rearLens = hw.lensById(pair.first) ?: return
+        val frontLens = hw.lensById(pair.second) ?: return
+        activeLens = rearLens
+        secondaryLens = frontLens
+
+        // Concurrent operation is only guaranteed up to 720p per stream.
+        val cap = Size(1280, 720)
+        val aspect = 4f / 3f
+        val rearSize = hw.bestPreviewSize(rearLens, cap, aspect)
+        val frontSize = hw.bestPreviewSize(frontLens, cap, aspect)
+        rearStreamSize = rearSize
+        frontStreamSize = frontSize
+
+        val rearInput = compositor.acquireInputSurface(
+            StreamSlot.REAR, rearSize.width, rearSize.height,
+            textureRotationFor(rearLens), false
+        ) ?: return
+        val frontInput = compositor.acquireInputSurface(
+            StreamSlot.FRONT, frontSize.width, frontSize.height,
+            textureRotationFor(frontLens), true
+        ) ?: return
+
+        stillReader = null
+        analysisReader = null
+
+        val rear = Camera2Stream(ctx, rearLens, requireHandler())
+        rear.onResult = { result -> onCaptureResult(result, rearLens) }
+        val front = Camera2Stream(ctx, frontLens, requireHandler())
+        // Both streams report faces: in Dual Vlog the subject worth tracking is usually the
+        // presenter on the front camera, not whatever the rear lens happens to see.
+        front.onResult = { result -> onCaptureResult(result, frontLens) }
+        rearStream = rear
+        frontStream = front
+
+        // Both devices must be open before either session is configured (see Camera2Stream.openDevice).
+        rear.openDevice(
+            onOpened = {
+                if (!isCurrent(generation)) return@openDevice
+                front.openDevice(
+                    onOpened = {
+                        if (!isCurrent(generation)) return@openDevice
+                        rear.configure(
+                            repeating = listOf(rearInput),
+                            frame = buildFrame(rearLens),
+                            onReady = { applyPostConfigureState() },
+                            onError = { message -> reportSessionError(message) }
+                        )
+                        front.configure(
+                            repeating = listOf(frontInput),
+                            frame = buildFrame(frontLens),
+                            onReady = { pushLayout() },
+                            onError = { message ->
+                                Log.w(TAG, "Secondary vlog session failed: $message")
+                                dropSecondaryVlogStream()
+                            }
+                        )
+                    },
+                    onError = { message ->
+                        if (!isCurrent(generation)) return@openDevice
+                        Log.w(TAG, "Secondary vlog camera unavailable: $message")
+                        dropSecondaryVlogStream()
+                        // Fall back to a single live feed rather than showing a dead half.
+                        rear.configure(
+                            repeating = listOf(rearInput),
+                            frame = buildFrame(rearLens),
+                            onReady = { applyPostConfigureState() },
+                            onError = { m -> reportSessionError(m) }
+                        )
+                    }
+                )
+            },
+            onError = { message -> reportSessionError(message) }
+        )
+    }
+
+    /** Tears down the second vlog feed and re-renders as a single full-frame stream. */
+    private fun dropSecondaryVlogStream() {
+        val front = frontStream ?: return
+        frontStream = null
+        sessionHandler?.post {
+            front.close()
+            compositor.releaseInputSurface(StreamSlot.FRONT)
+            pushLayout()
+        }
+    }
+
+    private fun reportSessionError(message: String) {
+        Log.e(TAG, "Session error: $message")
+        _captureProgress.value = CaptureProgress(CaptureState.IDLE, 0f, message)
+    }
+
+    private fun requireHandler(): Handler {
+        ensureCameraThread()
+        return cameraHandler!!
+    }
+
+    private fun createStillReader(
+        hw: CameraHardware,
+        lens: CameraHardware.Lens,
+        aspect: Float
+    ): ImageReader? {
+        val cap = when (_photoResolution.value) {
+            PhotoResolution.HIGH_50MP -> Size(8160, 6120)
+            PhotoResolution.STANDARD_12MP -> Size(4080, 3060)
+            PhotoResolution.SAVER_8MP -> Size(3264, 2448)
+        }
+        val size = hw.bestSize(lens, ImageFormat.JPEG, cap, aspect) ?: return null
+        return ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 2)
+    }
+
+    private fun createAnalysisReader(
+        hw: CameraHardware,
+        lens: CameraHardware.Lens,
+        aspect: Float
+    ): ImageReader? {
+        val size = hw.bestSize(lens, ImageFormat.YUV_420_888, Size(640, 480), aspect)
+            ?: return null
+        return ImageReader.newInstance(size.width, size.height, ImageFormat.YUV_420_888, 2)
+            .also { reader ->
+                reader.setOnImageAvailableListener({ r ->
+                    val image = runCatching { r.acquireLatestImage() }.getOrNull() ?: return@setOnImageAvailableListener
+                    try {
+                        processAnalysisFrame(image)
+                    } finally {
+                        image.close()
+                    }
+                }, requireHandler())
+            }
+    }
+
+    private fun applyPostConfigureState() {
+        val lens = activeLens ?: return
+        readCapabilities(lens)
+        pushLayout()
+    }
+
+    private fun buildFrame(lens: CameraHardware.Lens): CaptureRequestTuner.Frame {
+        // Digital zoom is relative to this lens's own optical position.
+        val digital = if (lens.isFront || lens.baseZoom <= 0f) {
+            _zoomRatio.value
+        } else {
+            _zoomRatio.value / lens.baseZoom
+        }
+        return CaptureRequestTuner.Frame(
+            pro = _proSettings.value,
+            flash = _flashMode.value,
+            digitalZoom = digital.coerceAtLeast(1.0f),
+            videoStabilization = _videoStabilizationEnabled.value,
+            isVideo = isVideoMode(_cameraMode.value),
+            meteringPoint = meteringPoint,
+            trackingBox = if (lens.isFront) frontTrackingBox else rearTrackingBox,
+            faceTracking = _subjectTrackingEnabled.value
+        )
+    }
+
+    private fun refreshRepeating() {
+        rearStream?.let { it.setRepeating(buildFrame(it.lens)) }
+        frontStream?.let { it.setRepeating(buildFrame(it.lens)) }
+    }
+
+    private fun readCapabilities(lens: CameraHardware.Lens) {
+        val tuner = rearStream?.tuner ?: return
+        _manualControlsSupported.value = tuner.manualSensorSupported
+        _videoStabilizationSupported.value = tuner.videoStabilizationSupported
         _hardwareQualityStatus.value = HardwareQualityStatus(
-            hardwareLevelName = hwLevelName,
-            oisSupported = opticalStabilizationSupported,
-            oisActive = opticalStabilizationSupported && _proSettings.value.oisEnabled,
-            maxResolutionMegapixels = maxMp,
+            hardwareLevelName = tuner.hardwareLevelName,
+            oisSupported = tuner.opticalStabilizationSupported,
+            oisActive = tuner.opticalStabilizationSupported && _proSettings.value.oisEnabled,
+            maxResolutionMegapixels = tuner.sensorMegapixels,
             highQualityDenoiseActive = _proSettings.value.hardwareDenoiseQuality,
             edgeEnhancementActive = _proSettings.value.edgeSharpeningBoost,
             chromaticAberrationCorrectionActive = true,
@@ -571,214 +598,362 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
             toneMappingActive = true,
             uncompressedJpegQuality = 100
         )
-
         Log.i(
             TAG,
-            "Hardware Level=$hwLevelName OIS=$opticalStabilizationSupported SensorMP=$maxMp Manual=$manualSensorSupported"
+            "Camera ${lens.cameraId} level=${tuner.hardwareLevelName} " +
+                "faceTracking=${tuner.supportsFaceTracking} manual=${tuner.manualSensorSupported}"
         )
     }
 
-    @OptIn(ExperimentalCamera2Interop::class)
-    private fun applyManualControls() {
-        val control = camera?.cameraControl ?: return
-        val pro = _proSettings.value
-        val builder = CaptureRequestOptions.Builder()
+    // ---------------------------------------------------------------------------------------
+    // Hardware subject tracking
+    // ---------------------------------------------------------------------------------------
 
-        // 1. Exposure controls
-        val wantsManualExposure = manualSensorSupported && (!pro.isIsoAuto || !pro.isShutterAuto)
-        if (wantsManualExposure) {
-            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
-            isoRange?.let { range ->
-                val iso = if (pro.isIsoAuto) range.lower else pro.iso
-                builder.setCaptureRequestOption(
-                    CaptureRequest.SENSOR_SENSITIVITY,
-                    iso.coerceIn(range.lower, range.upper)
-                )
+    /**
+     * Reads the HAL's own per-frame scene analysis.
+     *
+     * Faces detected by the camera hardware are mapped into viewport space — through the same
+     * rotation, mirroring and center-crop the compositor applies — so the reticle sits on the
+     * subject, and the winning box is fed back as the AF/AE metering region on the next request
+     * so focus and exposure follow that subject.
+     */
+    private fun onCaptureResult(result: TotalCaptureResult, lens: CameraHardware.Lens) {
+        if (released) return
+        if (!_subjectTrackingEnabled.value) {
+            if (rearTrackingBox != null || frontTrackingBox != null) {
+                rearTrackingBox = null
+                frontTrackingBox = null
+                _trackedSubjects.value = emptyList()
             }
-            exposureTimeRange?.let { range ->
-                val denominator = pro.shutterSpeedDenominator.coerceAtLeast(1L)
-                val nanos = if (pro.isShutterAuto) range.lower else 1_000_000_000L / denominator
-                builder.setCaptureRequestOption(
-                    CaptureRequest.SENSOR_EXPOSURE_TIME,
-                    nanos.coerceIn(range.lower, range.upper)
-                )
+            return
+        }
+
+        val now = System.nanoTime()
+        if (now - lastTrackingEmitNanos < TRACKING_INTERVAL_NANOS) return
+        lastTrackingEmitNanos = now
+
+        val stream = if (lens.isFront) frontStream else rearStream
+        val tuner = stream?.tuner ?: return
+        val faces = result.get(CaptureResult.STATISTICS_FACES)?.toList().orEmpty()
+
+        if (faces.isEmpty()) {
+            val had = if (lens.isFront) frontTrackingBox != null else rearTrackingBox != null
+            if (had) {
+                if (lens.isFront) frontTrackingBox = null else rearTrackingBox = null
+                publishTrackedSubjects()
+                stream.setRepeating(buildFrame(lens))
             }
+            return
+        }
+
+        val active = tuner.activeArray
+        if (active.width() <= 0 || active.height() <= 0) return
+
+        // Largest face wins: in a vlog frame that is the person actually talking to camera.
+        val primary = faces.maxByOrNull {
+            (it.bounds.width().toLong()) * it.bounds.height()
+        } ?: return
+
+        val box = floatArrayOf(
+            (primary.bounds.left - active.left).toFloat() / active.width(),
+            (primary.bounds.top - active.top).toFloat() / active.height(),
+            (primary.bounds.right - active.left).toFloat() / active.width(),
+            (primary.bounds.bottom - active.top).toFloat() / active.height()
+        )
+
+        val previous = if (lens.isFront) frontTrackingBox else rearTrackingBox
+        val moved = previous == null || (0..3).any { abs(previous[it] - box[it]) > TRACKING_DEADZONE }
+        if (lens.isFront) frontTrackingBox = box else rearTrackingBox = box
+        publishTrackedSubjects()
+        if (moved) stream.setRepeating(buildFrame(lens))
+    }
+
+    /**
+     * Converts the latched per-stream sensor boxes into viewport rectangles the UI can draw,
+     * honouring the current Dual Vlog layout so a reticle lands inside the half it belongs to.
+     */
+    private fun publishTrackedSubjects() {
+        val dual = _cameraMode.value == CameraMode.DUAL_VLOG && frontStream != null
+        val frames = if (dual) {
+            DualVlogNormalizedGeometry.framesFor(
+                _dualVlogLayout.value,
+                _isDualStreamSwapped.value,
+                _dualVlogPipRect.value
+            )
         } else {
-            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+            null
         }
 
-        // 2. White Balance
-        if (pro.isWbAuto) {
-            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-        } else {
-            builder.setCaptureRequestOption(
-                CaptureRequest.CONTROL_AWB_MODE,
-                kelvinToAwbMode(pro.kelvinWb)
-            )
-        }
-
-        // 3. Focus Mode
-        if (!pro.isFocusAuto && minFocusDistance > 0f) {
-            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
-            builder.setCaptureRequestOption(
-                CaptureRequest.LENS_FOCUS_DISTANCE,
-                (pro.manualFocusDistance * minFocusDistance).coerceIn(0f, minFocusDistance)
-            )
-        } else {
-            builder.setCaptureRequestOption(
-                CaptureRequest.CONTROL_AF_MODE,
-                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
-            )
-        }
-
-        // 4. Optical Image Stabilization (Physical Gyro OIS)
-        if (opticalStabilizationSupported) {
-            builder.setCaptureRequestOption(
-                CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
-                if (pro.oisEnabled) CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON else CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF
-            )
-        }
-
-        // 5. Hardware-level Image Processing Pipeline for Crystal Clarity
-        builder.setCaptureRequestOption(
-            CaptureRequest.NOISE_REDUCTION_MODE,
-            if (pro.hardwareDenoiseQuality) CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY else CaptureRequest.NOISE_REDUCTION_MODE_FAST
-        )
-
-        builder.setCaptureRequestOption(
-            CaptureRequest.EDGE_MODE,
-            if (pro.edgeSharpeningBoost) CaptureRequest.EDGE_MODE_HIGH_QUALITY else CaptureRequest.EDGE_MODE_FAST
-        )
-
-        builder.setCaptureRequestOption(
-            CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE,
-            CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE_HIGH_QUALITY
-        )
-
-        builder.setCaptureRequestOption(
-            CaptureRequest.SHADING_MODE,
-            CaptureRequest.SHADING_MODE_HIGH_QUALITY
-        )
-
-        builder.setCaptureRequestOption(
-            CaptureRequest.HOT_PIXEL_MODE,
-            CaptureRequest.HOT_PIXEL_MODE_HIGH_QUALITY
-        )
-
-        builder.setCaptureRequestOption(
-            CaptureRequest.TONEMAP_MODE,
-            CaptureRequest.TONEMAP_MODE_HIGH_QUALITY
-        )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            builder.setCaptureRequestOption(
-                CaptureRequest.DISTORTION_CORRECTION_MODE,
-                CaptureRequest.DISTORTION_CORRECTION_MODE_HIGH_QUALITY
-            )
-        }
-
-        // 6. Video Stabilization
-        if (deviceSupportsVideoStabilization) {
-            builder.setCaptureRequestOption(
-                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
-                if (_videoStabilizationEnabled.value) {
-                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
-                } else {
-                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+        val subjects = buildList {
+            rearStream?.lens?.let { lens ->
+                rearTrackingBox?.let { box ->
+                    viewportSubject(box, lens, rearStreamSize, frames?.rear)?.let(::add)
                 }
-            )
+            }
+            if (dual) {
+                frontStream?.lens?.let { lens ->
+                    frontTrackingBox?.let { box ->
+                        viewportSubject(box, lens, frontStreamSize, frames?.front)?.let(::add)
+                    }
+                }
+            }
+        }
+        _trackedSubjects.value = subjects
+    }
+
+    private fun viewportSubject(
+        sensorBox: FloatArray,
+        lens: CameraHardware.Lens,
+        streamSize: Size?,
+        frame: NormalizedRect?
+    ): TrackedSubject? {
+        var left = sensorBox[0]
+        var top = sensorBox[1]
+        var right = sensorBox[2]
+        var bottom = sensorBox[3]
+
+        // Rotate into display space: each 90 degrees clockwise maps (x, y) -> (1 - y, x).
+        val display = displayRotationFor(lens)
+        repeat(display / 90) {
+            val nl = 1f - bottom
+            val nt = left
+            val nr = 1f - top
+            val nb = right
+            left = nl; top = nt; right = nr; bottom = nb
+        }
+        if (lens.isFront) {
+            val nl = 1f - right
+            val nr = 1f - left
+            left = nl
+            right = nr
         }
 
-        runCatching {
-            Camera2CameraControl.from(control).setCaptureRequestOptions(builder.build())
-        }.onFailure { Log.w(TAG, "Unable to apply manual controls", it) }
+        val dest = frame ?: NormalizedRect.FULL
+        val destWidthPx = dest.width * previewWidth
+        val destHeightPx = dest.height * previewHeight
+        val size = streamSize
+        if (size != null && destWidthPx > 0f && destHeightPx > 0f) {
+            val (fx, fy) = CenterCrop.visibleFraction(
+                size.width, size.height, textureRotationFor(lens), destWidthPx, destHeightPx
+            )
+            left = CenterCrop.toVisibleWindow(left, fx)
+            right = CenterCrop.toVisibleWindow(right, fx)
+            top = CenterCrop.toVisibleWindow(top, fy)
+            bottom = CenterCrop.toVisibleWindow(bottom, fy)
+        }
+
+        // Fully cropped out of frame: nothing to draw.
+        if (right <= 0f || left >= 1f || bottom <= 0f || top >= 1f) return null
+
+        return TrackedSubject(
+            bounds = NormalizedRect(
+                dest.left + dest.width * left.coerceIn(0f, 1f),
+                dest.top + dest.height * top.coerceIn(0f, 1f),
+                dest.left + dest.width * right.coerceIn(0f, 1f),
+                dest.top + dest.height * bottom.coerceIn(0f, 1f)
+            ),
+            score = 0,
+            onFrontStream = lens.isFront
+        )
     }
 
-    private fun kelvinToAwbMode(kelvin: Int): Int = when {
-        kelvin <= 3000 -> CaptureRequest.CONTROL_AWB_MODE_INCANDESCENT
-        kelvin <= 4200 -> CaptureRequest.CONTROL_AWB_MODE_FLUORESCENT
-        kelvin <= 5200 -> CaptureRequest.CONTROL_AWB_MODE_DAYLIGHT
-        kelvin <= 6500 -> CaptureRequest.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT
-        else -> CaptureRequest.CONTROL_AWB_MODE_SHADE
+    // ---------------------------------------------------------------------------------------
+    // Compositor layout
+    // ---------------------------------------------------------------------------------------
+
+    private fun pushLayout() {
+        val dual = _cameraMode.value == CameraMode.DUAL_VLOG && frontStream != null
+        val layout = _dualVlogLayout.value
+        compositor.setLayout(
+            CameraCompositor.LayoutState(
+                dual = dual,
+                frames = if (dual) {
+                    DualVlogNormalizedGeometry.framesFor(
+                        layout,
+                        _isDualStreamSwapped.value,
+                        _dualVlogPipRect.value
+                    )
+                } else {
+                    null
+                },
+                circleInset = layout == DualVlogLayout.PIP_CIRCLE,
+                profile = _colorProfile.value
+            )
+        )
     }
 
-    private fun aspectRatioStrategy(): AspectRatioStrategy = when (_aspectRatio.value) {
-        AspectRatio.RATIO_16_9, AspectRatio.RATIO_FULL ->
-            AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY
-        else -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
+    // ---------------------------------------------------------------------------------------
+    // Domain overrides
+    // ---------------------------------------------------------------------------------------
+
+    override fun setMode(mode: CameraMode) {
+        val previous = _cameraMode.value
+        super.setMode(mode)
+        if (previous != mode) {
+            // Leaving Dual Vlog must release the second camera before the next session opens.
+            if (previous == CameraMode.DUAL_VLOG) compositor.releaseInputSurface(StreamSlot.FRONT)
+            configureSession()
+        }
+    }
+
+    override fun setLens(lens: LensFacing) {
+        val previous = _currentLens.value
+        super.setLens(lens)
+        if (previous != lens) configureSession()
+    }
+
+    override fun setZoom(zoom: Float) {
+        val previousLens = targetLens()?.cameraId
+        super.setZoom(zoom)
+        // Crossing an optical lens boundary needs a new session; digital zoom does not.
+        if (targetLens()?.cameraId != previousLens) configureSession() else refreshRepeating()
+    }
+
+    override fun setFlash(flash: FlashMode) {
+        super.setFlash(flash)
+        refreshRepeating()
     }
 
     override fun setAspectRatio(ratio: AspectRatio) {
         val previous = _aspectRatio.value
         super.setAspectRatio(ratio)
-        if (aspectGroup(previous) != aspectGroup(ratio)) {
-            boundSignature = null
-            startCamera()
+        if (aspectGroup(previous) != aspectGroup(ratio)) configureSession()
+    }
+
+    override fun setColorProfile(profile: ColorProfile) {
+        super.setColorProfile(profile)
+        pushLayout()
+    }
+
+    override fun setPhotoResolution(resolution: PhotoResolution) {
+        val previous = _photoResolution.value
+        super.setPhotoResolution(resolution)
+        if (previous != resolution) configureSession()
+    }
+
+    override fun setVideoResolution(resolution: VideoResolution) {
+        super.setVideoResolution(resolution)
+    }
+
+    override fun setVideoStabilizationEnabled(enabled: Boolean) {
+        super.setVideoStabilizationEnabled(enabled)
+        refreshRepeating()
+    }
+
+    override fun setDualVlogLayout(layout: DualVlogLayout) {
+        super.setDualVlogLayout(layout)
+        pushLayout()
+    }
+
+    override fun swapDualStreams() {
+        super.swapDualStreams()
+        pushLayout()
+    }
+
+    override fun setDualVlogPipRect(rect: NormalizedRect) {
+        super.setDualVlogPipRect(rect)
+        pushLayout()
+    }
+
+    override fun setSubjectTrackingEnabled(enabled: Boolean) {
+        super.setSubjectTrackingEnabled(enabled)
+        if (!enabled) {
+            rearTrackingBox = null
+            frontTrackingBox = null
         }
+        refreshRepeating()
     }
 
-    private fun aspectGroup(ratio: AspectRatio): String = when (ratio) {
-        AspectRatio.RATIO_16_9, AspectRatio.RATIO_FULL -> "wide"
-        else -> "standard"
+    override fun setFocusPoint(x: Float, y: Float) {
+        super.setFocusPoint(x, y)
+        meteringPoint = x.coerceIn(0f, 1f) to y.coerceIn(0f, 1f)
+        // An explicit tap overrides whatever the tracker had latched onto.
+        rearTrackingBox = null
+        frontTrackingBox = null
+        rearStream?.let { it.triggerAutoFocus(buildFrame(it.lens)) }
     }
 
-    private fun toCameraXFlashMode(flash: FlashMode) = when (flash) {
-        FlashMode.AUTO -> ImageCapture.FLASH_MODE_AUTO
-        FlashMode.ON, FlashMode.TORCH -> ImageCapture.FLASH_MODE_ON
-        FlashMode.OFF -> ImageCapture.FLASH_MODE_OFF
+    override fun clearFocusPoint() {
+        super.clearFocusPoint()
+        meteringPoint = null
+        refreshRepeating()
     }
 
-    private fun processAnalysisFrame(imageProxy: ImageProxy) {
+    override fun updateProSettings(transform: (ProSettings) -> ProSettings) {
+        val previousAnalysis = wantsAnalysis()
+        super.updateProSettings(transform)
+        if (wantsAnalysis() != previousAnalysis) configureSession() else refreshRepeating()
+        activeLens?.let { readCapabilities(it) }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Live analysis (histogram, focus peaking, zebra clipping)
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Camera2 hands us YUV_420_888 rather than CameraX's RGBA, so luminance comes straight from
+     * the Y plane and chroma is sampled at half resolution to rebuild approximate RGB bins.
+     */
+    private fun processAnalysisFrame(image: android.media.Image) {
         try {
             val now = System.nanoTime()
             if (now - lastHistogramEmitNanos < HISTOGRAM_INTERVAL_NANOS) return
             lastHistogramEmitNanos = now
 
-            val plane = imageProxy.planes[0]
-            val buffer: ByteBuffer = plane.buffer
-            val pixelStride = plane.pixelStride
-            val rowStride = plane.rowStride
-            val width = imageProxy.width
-            val height = imageProxy.height
+            val width = image.width
+            val height = image.height
+            if (width <= 0 || height <= 0) return
+
+            val yPlane = image.planes[0]
+            val uPlane = image.planes[1]
+            val vPlane = image.planes[2]
+            val yBuffer: ByteBuffer = yPlane.buffer
+            val uBuffer: ByteBuffer = uPlane.buffer
+            val vBuffer: ByteBuffer = vPlane.buffer
 
             val rBins = histogramRed.also { it.fill(0) }
             val gBins = histogramGreen.also { it.fill(0) }
             val bBins = histogramBlue.also { it.fill(0) }
             val lumBins = histogramLuma.also { it.fill(0) }
 
+            val gridWidth = width / MASK_STEP
+            val gridHeight = height / MASK_STEP
+            val trackGrid = gridWidth >= 3 && gridHeight >= 3
+            if (trackGrid && (lumaGridWidth != gridWidth || lumaGridHeight != gridHeight)) {
+                lumaGrid = ByteArray(gridWidth * gridHeight)
+                lumaGridWidth = gridWidth
+                lumaGridHeight = gridHeight
+            }
+
             val step = 4
             var sampleCount = 0
-            if (histogramRowBuffer.size < rowStride) histogramRowBuffer = ByteArray(rowStride)
-            val rowBytes = histogramRowBuffer
-
             for (y in 0 until height step step) {
-                val rowStart = y * rowStride
-                if (rowStart >= buffer.limit()) break
-                buffer.position(rowStart)
-                val bytesToRead = (width * pixelStride).coerceAtMost(buffer.remaining())
-                if (bytesToRead <= 0) break
-                buffer.get(rowBytes, 0, bytesToRead)
-
+                val yRow = y * yPlane.rowStride
+                val uvRow = (y / 2) * uPlane.rowStride
                 for (x in 0 until width step step) {
-                    val offset = x * pixelStride
-                    if (offset + 2 >= bytesToRead) break
-                    val r = rowBytes[offset].toInt() and 0xFF
-                    val g = rowBytes[offset + 1].toInt() and 0xFF
-                    val b = rowBytes[offset + 2].toInt() and 0xFF
-                    val lum = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
+                    val yIndex = yRow + x * yPlane.pixelStride
+                    if (yIndex >= yBuffer.limit()) break
+                    val luma = yBuffer.get(yIndex).toInt() and 0xFF
+
+                    val uvIndex = uvRow + (x / 2) * uPlane.pixelStride
+                    val u = if (uvIndex < uBuffer.limit()) (uBuffer.get(uvIndex).toInt() and 0xFF) - 128 else 0
+                    val v = if (uvIndex < vBuffer.limit()) (vBuffer.get(uvIndex).toInt() and 0xFF) - 128 else 0
+
+                    val r = (luma + 1.370705f * v).toInt().coerceIn(0, 255)
+                    val g = (luma - 0.337633f * u - 0.698001f * v).toInt().coerceIn(0, 255)
+                    val b = (luma + 1.732446f * u).toInt().coerceIn(0, 255)
 
                     rBins[r * BIN_COUNT / 256]++
                     gBins[g * BIN_COUNT / 256]++
                     bBins[b * BIN_COUNT / 256]++
-                    lumBins[lum.coerceIn(0, 255) * BIN_COUNT / 256]++
+                    lumBins[luma * BIN_COUNT / 256]++
                     sampleCount++
                 }
             }
 
             if (sampleCount > 0) {
-                val peak = maxOf(
-                    rBins.max(), gBins.max(), bBins.max(), lumBins.max()
-                ).coerceAtLeast(1)
+                val peak = max(max(rBins.max(), gBins.max()), max(bBins.max(), lumBins.max()))
+                    .coerceAtLeast(1)
                 _liveHistogram.value = HistogramData(
                     redBins = rBins.map { it * 100 / peak },
                     greenBins = gBins.map { it * 100 / peak },
@@ -787,107 +962,63 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
                 )
             }
 
-            updateExposureMask(buffer, pixelStride, rowStride, width, height)
+            if (trackGrid) updateExposureMask(yBuffer, yPlane.rowStride, yPlane.pixelStride, gridWidth, gridHeight)
         } catch (e: Exception) {
-            Log.w(TAG, "Dropped histogram frame", e)
-        } finally {
-            imageProxy.close()
+            Log.w(TAG, "Dropped analysis frame", e)
         }
     }
 
-    override fun setMode(mode: CameraMode) {
-        super.setMode(mode)
-        startCamera()
-    }
-
-    override fun setLens(lens: LensFacing) {
-        super.setLens(lens)
-        startCamera()
-        applyZoom(_zoomRatio.value)
-    }
-
-    override fun setZoom(zoom: Float) {
-        super.setZoom(zoom)
-        applyZoom(zoom)
-    }
-
-    private fun applyZoom(requested: Float) {
-        val control = camera?.cameraControl ?: return
-        val zoomState = camera?.cameraInfo?.zoomState?.value
-        val min = zoomState?.minZoomRatio ?: 0.5f
-        val max = zoomState?.maxZoomRatio ?: 10.0f
-        control.setZoomRatio(requested.coerceIn(min, max))
-    }
-
-    override fun setPhotoResolution(resolution: PhotoResolution) {
-        val previous = _photoResolution.value
-        super.setPhotoResolution(resolution)
-        if (previous != resolution) {
-            boundSignature = null
-            startCamera()
-        }
-    }
-
-    override fun setVideoResolution(resolution: VideoResolution) {
-        val previous = _videoResolution.value
-        super.setVideoResolution(resolution)
-        if (previous != resolution) {
-            boundSignature = null
-            startCamera()
-        }
-    }
-
-
-    override fun setFlash(flash: FlashMode) {
-        super.setFlash(flash)
-        val control = camera?.cameraControl
-        val hasFlash = camera?.cameraInfo?.hasFlashUnit() == true
-        if (hasFlash) {
-            if (flash == FlashMode.TORCH) {
-                runCatching { control?.enableTorch(true) }
-            } else {
-                runCatching { control?.enableTorch(false) }
-                imageCapture?.flashMode = toCameraXFlashMode(flash)
-            }
-        } else {
-            // Front camera screen flash fallback
-            runCatching { control?.enableTorch(false) }
-            imageCapture?.flashMode = ImageCapture.FLASH_MODE_OFF
-        }
-    }
-
-    override fun setFocusPoint(x: Float, y: Float) {
-        super.setFocusPoint(x, y)
-        val pView = previewView ?: return
-        if (pView.width == 0 || pView.height == 0) return
-        val point = pView.meteringPointFactory.createPoint(x * pView.width, y * pView.height)
-        val action = FocusMeteringAction
-            .Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
-            .setAutoCancelDuration(4, TimeUnit.SECONDS)
-            .build()
-        try {
-            camera?.cameraControl?.startFocusAndMetering(action)
-        } catch (e: Exception) {
-            Log.w(TAG, "Focus/metering rejected", e)
-        }
-    }
-
-    override fun updateProSettings(transform: (ProSettings) -> ProSettings) {
-        super.updateProSettings(transform)
+    /**
+     * Focus peaking and zebra clipping both work purely on luminance, so they read the Y plane
+     * directly instead of the interleaved RGBA the CameraX analyzer used to provide.
+     */
+    private fun updateExposureMask(
+        yBuffer: ByteBuffer,
+        rowStride: Int,
+        pixelStride: Int,
+        gridWidth: Int,
+        gridHeight: Int
+    ) {
         val pro = _proSettings.value
-        val exposureState = camera?.cameraInfo?.exposureState ?: return
-        if (!exposureState.isExposureCompensationSupported) return
-        val step = exposureState.exposureCompensationStep.toFloat()
-        if (step <= 0f) return
-        val index = kotlin.math.round(pro.evBias / step).toInt().coerceIn(
-            exposureState.exposureCompensationRange.lower,
-            exposureState.exposureCompensationRange.upper
-        )
-        camera?.cameraControl?.setExposureCompensationIndex(index)
-        applyManualControls()
-        startCamera()
+        if (!pro.focusPeakingEnabled && !pro.zebraClippingEnabled) {
+            if (!_exposureMask.value.isEmpty) _exposureMask.value = ExposureMask()
+            return
+        }
+
+        for (gy in 0 until gridHeight) {
+            val rowStart = gy * MASK_STEP * rowStride
+            for (gx in 0 until gridWidth) {
+                val index = rowStart + gx * MASK_STEP * pixelStride
+                val luma = if (index < yBuffer.limit()) yBuffer.get(index).toInt() and 0xFF else 0
+                lumaGrid[gy * gridWidth + gx] = (luma shr 1).toByte()
+            }
+        }
+
+        val cells = gridWidth * gridHeight
+        val peaking = if (pro.focusPeakingEnabled) ByteArray(cells) else ByteArray(0)
+        val zebra = if (pro.zebraClippingEnabled) ByteArray(cells) else ByteArray(0)
+
+        for (gy in 1 until gridHeight - 1) {
+            for (gx in 1 until gridWidth - 1) {
+                val index = gy * gridWidth + gx
+                val centre = lumaGrid[index].toInt() and 0xFF
+                if (zebra.isNotEmpty() && centre >= ZEBRA_THRESHOLD) zebra[index] = 1
+                if (peaking.isNotEmpty()) {
+                    val right = lumaGrid[index + 1].toInt() and 0xFF
+                    val below = lumaGrid[index + gridWidth].toInt() and 0xFF
+                    if (abs(centre - right) + abs(centre - below) >= PEAKING_THRESHOLD) {
+                        peaking[index] = 1
+                    }
+                }
+            }
+        }
+
+        _exposureMask.value = ExposureMask(gridWidth, gridHeight, peaking, zebra)
     }
 
+    // ---------------------------------------------------------------------------------------
+    // Gallery, EXIF and MediaStore (unchanged by the Camera2 migration)
+    // ---------------------------------------------------------------------------------------
 
     override suspend fun refreshGallery() {
         val ctx = context ?: return
@@ -1093,14 +1224,30 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
         return deleted
     }
 
+
+    // ---------------------------------------------------------------------------------------
+    // Still capture
+    // ---------------------------------------------------------------------------------------
+
+    private fun mimeTypeFor(format: CaptureFormat) = when (format) {
+        CaptureFormat.RAW_DNG, CaptureFormat.RAW_PLUS_JPEG -> "image/x-adobe-dng"
+        else -> "image/jpeg"
+    }
+
+    /** JPEG EXIF orientation for the current device attitude, per the Camera2 contract. */
+    private fun jpegOrientation(lens: CameraHardware.Lens): Int {
+        val device = if (lens.isFront) -deviceOrientationDegrees else deviceOrientationDegrees
+        return (lens.sensorOrientation + device + 360) % 360
+    }
+
     override suspend fun capturePhoto(): CapturedMedia {
         val ctx = context
-        val capture = imageCapture
-
-        if (ctx == null || capture == null) {
+        val stream = rearStream
+        val reader = stillReader
+        val lens = activeLens
+        if (ctx == null || stream == null || reader == null || lens == null || !stream.isReady) {
             return super.capturePhoto()
         }
-
         if (!captureInFlight.compareAndSet(false, true)) {
             return _recentMedia.value ?: super.capturePhoto()
         }
@@ -1124,79 +1271,56 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
 
             val requestedFormat = _captureFormat.value
             val effectiveFormat = if (requestedFormat.isRaw && !canWriteDng) {
-                Log.i(TAG, "RAW requested but unavailable (sensor=$rawSupported, writer=$DNG_WRITER_IMPLEMENTED); saving JPEG")
+                Log.i(TAG, "RAW requested but no DNG writer; saving JPEG")
                 CaptureFormat.JPEG
             } else {
                 requestedFormat
             }
-            if (effectiveFormat != requestedFormat) {
-                _captureFormat.value = effectiveFormat
-            }
+            if (effectiveFormat != requestedFormat) _captureFormat.value = effectiveFormat
 
             val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val fileName = "PXL_$timeStamp.${effectiveFormat.extension}"
+            val geoLocation =
+                if (_geotaggingEnabled.value) locationProvider.lastKnownLocation() else null
 
-            val contentValues = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                put(MediaStore.MediaColumns.MIME_TYPE, mimeTypeFor(effectiveFormat))
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DCIM + "/AuraCam")
+            val bytes = withTimeoutOrNull(CAPTURE_TIMEOUT_MS) {
+                awaitJpeg(reader) {
+                    stream.captureStill(
+                        target = reader.surface,
+                        frame = buildFrame(lens),
+                        jpegOrientation = jpegOrientation(lens),
+                        jpegQuality = 100,
+                        location = geoLocation?.toAndroidLocation(),
+                        onFailed = { message -> Log.e(TAG, "Still capture failed: $message") }
+                    )
                 }
-            }
+            } ?: throw IllegalStateException("Capture timed out")
 
-            val geoLocation = if (_geotaggingEnabled.value) locationProvider.lastKnownLocation() else null
+            val uri = withContext(Dispatchers.IO) {
+                MediaStoreWriter.writeImage(ctx, fileName, mimeTypeFor(effectiveFormat), bytes)
+            } ?: throw IllegalStateException("Unable to save capture")
 
-            val outputOptions = ImageCapture.OutputFileOptions.Builder(
-                ctx.contentResolver,
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                contentValues
-            ).setMetadata(
-                ImageCapture.Metadata().apply {
-                    location = geoLocation?.toAndroidLocation()
-                    isReversedHorizontal = _currentLens.value == LensFacing.FRONT
-                }
-            ).build()
-
-            val media = suspendCoroutine { continuation ->
-                capture.takePicture(
-                    outputOptions,
-                    cameraExecutor,
-                    object : ImageCapture.OnImageSavedCallback {
-                        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                            val savedUri = outputFileResults.savedUri ?: Uri.EMPTY
-                            val exif = ComputationalPipeline.generateExif(
-                                mode = _cameraMode.value,
-                                lens = _currentLens.value,
-                                zoom = _zoomRatio.value,
-                                proSettings = _proSettings.value,
-                                captureFormat = _captureFormat.value,
-                                ultraHdr = _ultraHdrEnabled.value,
-                                capturedAtEpochMillis = System.currentTimeMillis(),
-                                location = geoLocation
-                            )
-                            val now = System.currentTimeMillis()
-                            continuation.resume(
-                                CapturedMedia(
-                                    id = "IMG_$now",
-                                    uri = savedUri.toString(),
-                                    fileName = fileName,
-                                    timestamp = now,
-                                    width = 4080,
-                                    height = 3072,
-                                    format = effectiveFormat,
-                                    mode = _cameraMode.value,
-                                    exif = exif
-                                )
-                            )
-                        }
-
-                        override fun onError(exception: ImageCaptureException) {
-                            Log.e(TAG, "Image capture failed", exception)
-                            continuation.resumeWithException(exception)
-                        }
-                    }
+            val now = System.currentTimeMillis()
+            val media = CapturedMedia(
+                id = "IMG_$now",
+                uri = uri.toString(),
+                fileName = fileName,
+                timestamp = now,
+                width = reader.width,
+                height = reader.height,
+                format = effectiveFormat,
+                mode = _cameraMode.value,
+                exif = ComputationalPipeline.generateExif(
+                    mode = _cameraMode.value,
+                    lens = _currentLens.value,
+                    zoom = _zoomRatio.value,
+                    proSettings = _proSettings.value,
+                    captureFormat = effectiveFormat,
+                    ultraHdr = _ultraHdrEnabled.value,
+                    capturedAtEpochMillis = now,
+                    location = geoLocation
                 )
-            }
+            )
 
             _recentMedia.value = media
             _galleryList.value = listOf(media) + _galleryList.value
@@ -1205,6 +1329,7 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
             delay(600)
             return media
         } catch (e: Exception) {
+            Log.e(TAG, "Capture failed", e)
             _captureProgress.value = CaptureProgress(CaptureState.IDLE, 0f, "Capture failed")
             delay(1200)
             throw e
@@ -1214,6 +1339,23 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
         }
     }
 
+    private suspend fun awaitJpeg(reader: ImageReader, submit: () -> Unit): ByteArray =
+        suspendCoroutine { continuation ->
+            reader.setOnImageAvailableListener({ r ->
+                val image = runCatching { r.acquireNextImage() }.getOrNull()
+                    ?: return@setOnImageAvailableListener
+                val bytes = try {
+                    val buffer = image.planes[0].buffer
+                    ByteArray(buffer.remaining()).also { buffer.get(it) }
+                } finally {
+                    image.close()
+                    r.setOnImageAvailableListener(null, null)
+                }
+                continuation.resume(bytes)
+            }, requireHandler())
+            submit()
+        }
+
     private fun GeoLocation.toAndroidLocation(): Location =
         Location(LocationManager.GPS_PROVIDER).also {
             it.latitude = latitude
@@ -1222,212 +1364,171 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
             accuracyMeters?.let { accuracy -> it.accuracy = accuracy }
         }
 
+    // ---------------------------------------------------------------------------------------
+    // Recording
+    // ---------------------------------------------------------------------------------------
 
-    private fun updateExposureMask(
-        buffer: ByteBuffer,
-        pixelStride: Int,
-        rowStride: Int,
-        width: Int,
-        height: Int
-    ) {
-        val pro = _proSettings.value
-        if (!pro.focusPeakingEnabled && !pro.zebraClippingEnabled) {
-            if (!_exposureMask.value.isEmpty) _exposureMask.value = ExposureMask()
-            return
+    /**
+     * Recording resolution follows the viewfinder's aspect so the encoded frame is the composite
+     * the user framed, not a differently-shaped crop of it.
+     */
+    private fun recordingSize(): Size {
+        val res = _videoResolution.value
+        val longEdge = max(res.width, res.height)
+        val viewW = previewWidth.takeIf { it > 0 } ?: 1080
+        val viewH = previewHeight.takeIf { it > 0 } ?: 1920
+        return if (viewH >= viewW) {
+            val width = (longEdge.toFloat() * viewW / viewH).roundToInt()
+            Size(width and 1.inv(), longEdge and 1.inv())
+        } else {
+            val height = (longEdge.toFloat() * viewH / viewW).roundToInt()
+            Size(longEdge and 1.inv(), height and 1.inv())
         }
-
-        val gridWidth = width / MASK_STEP
-        val gridHeight = height / MASK_STEP
-        if (gridWidth < 3 || gridHeight < 3) return
-
-        if (lumaGridWidth != gridWidth || lumaGridHeight != gridHeight) {
-            lumaGrid = ByteArray(gridWidth * gridHeight)
-            lumaGridWidth = gridWidth
-            lumaGridHeight = gridHeight
-        }
-
-        val rowBytes = histogramRowBuffer
-        for (gy in 0 until gridHeight) {
-            val rowStart = gy * MASK_STEP * rowStride
-            if (rowStart >= buffer.limit()) break
-            buffer.position(rowStart)
-            val bytesToRead = (width * pixelStride).coerceAtMost(buffer.remaining())
-            if (bytesToRead <= 0) break
-            buffer.get(rowBytes, 0, bytesToRead)
-
-            for (gx in 0 until gridWidth) {
-                val offset = gx * MASK_STEP * pixelStride
-                if (offset + 2 >= bytesToRead) break
-                val r = rowBytes[offset].toInt() and 0xFF
-                val g = rowBytes[offset + 1].toInt() and 0xFF
-                val b = rowBytes[offset + 2].toInt() and 0xFF
-                lumaGrid[gy * gridWidth + gx] =
-                    ((0.299f * r + 0.587f * g + 0.114f * b).toInt() shr 1).toByte()
-            }
-        }
-
-        val cells = gridWidth * gridHeight
-        val peaking = if (pro.focusPeakingEnabled) ByteArray(cells) else ByteArray(0)
-        val zebra = if (pro.zebraClippingEnabled) ByteArray(cells) else ByteArray(0)
-
-        for (gy in 1 until gridHeight - 1) {
-            for (gx in 1 until gridWidth - 1) {
-                val index = gy * gridWidth + gx
-                val centre = lumaGrid[index].toInt() and 0xFF
-
-                if (zebra.isNotEmpty() && centre >= ZEBRA_THRESHOLD) {
-                    zebra[index] = 1
-                }
-
-                if (peaking.isNotEmpty()) {
-                    val right = lumaGrid[index + 1].toInt() and 0xFF
-                    val below = lumaGrid[index + gridWidth].toInt() and 0xFF
-                    val gradient = kotlin.math.abs(centre - right) + kotlin.math.abs(centre - below)
-                    if (gradient >= PEAKING_THRESHOLD) peaking[index] = 1
-                }
-            }
-        }
-
-        _exposureMask.value = ExposureMask(gridWidth, gridHeight, peaking, zebra)
     }
 
-    private fun mimeTypeFor(format: CaptureFormat) = when (format) {
-        CaptureFormat.RAW_DNG, CaptureFormat.RAW_PLUS_JPEG -> "image/x-adobe-dng"
-        else -> "image/jpeg"
-    }
+    private fun recordingBitRate(size: Size): Int =
+        (size.width.toLong() * size.height * RECORD_BITS_PER_PIXEL / 1000L * 30L).toInt()
+            .coerceIn(4_000_000, 48_000_000)
 
     override suspend fun toggleVideoRecording() {
         val ctx = context
-        val video = videoCapture
-        if (ctx == null || video == null) {
+        if (ctx == null || previewSurface == null) {
             super.toggleVideoRecording()
             return
         }
 
         if (_isRecording.value) {
-            activeRecording?.stop()
-            activeRecording = null
+            stopRecording()
             return
         }
 
+        val size = recordingSize()
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val fileName = "VID_$timeStamp.mp4"
-
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DCIM + "/AuraCam")
+        val newRecorder = CompositeRecorder(ctx)
+        val surface = withContext(Dispatchers.IO) {
+            newRecorder.start(
+                outputWidth = size.width,
+                outputHeight = size.height,
+                frameRate = 30,
+                bitRate = recordingBitRate(size),
+                displayName = fileName
+            )
+        }
+        if (surface == null) {
+            Log.e(TAG, "Unable to start recorder")
+            _captureProgress.value = CaptureProgress(CaptureState.IDLE, 0f, "Recording unavailable")
+            return
+        }
+        recorder = newRecorder
+        compositor.setEncoderOutput(surface, size.width, size.height)
+        _isRecording.value = true
+        _recordingDurationSeconds.value = 0
+        recordingTicker = coroutineScope.launch {
+            while (isActive && _isRecording.value) {
+                delay(250)
+                _recordingDurationSeconds.value =
+                    (newRecorder.recordedDurationMs / 1000L).toInt()
             }
         }
+    }
 
-        val mediaStoreOutput = MediaStoreOutputOptions.Builder(
-            ctx.contentResolver,
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-        ).setContentValues(contentValues).build()
-
-        try {
-            val pending = video.output.prepareRecording(ctx, mediaStoreOutput)
-            if (hasPermission(ctx, Manifest.permission.RECORD_AUDIO)) {
-                pending.withAudioEnabled()
-            }
-            activeRecording = pending.start(ContextCompat.getMainExecutor(ctx)) { recordEvent ->
-                when (recordEvent) {
-                    is VideoRecordEvent.Start -> {
-                        _isRecording.value = true
-                        _recordingDurationSeconds.value = 0
-                    }
-
-                    is VideoRecordEvent.Status -> {
-                        _recordingDurationSeconds.value =
-                            (recordEvent.recordingStats.recordedDurationNanos / 1_000_000_000).toInt()
-                    }
-
-                    is VideoRecordEvent.Finalize -> {
-                        if (recordEvent.hasError()) {
-                            Log.e(TAG, "Recording error ${recordEvent.error}", recordEvent.cause)
-                        } else {
-                            val outputUri = recordEvent.outputResults.outputUri
-                            val now = System.currentTimeMillis()
-                            val media = CapturedMedia(
-                                id = "VID_$now",
-                                uri = outputUri.toString(),
-                                fileName = fileName,
-                                timestamp = now,
-                                width = 1920,
-                                height = 1080,
-                                format = CaptureFormat.JPEG,
-                                mode = _cameraMode.value,
-                                exif = ExifInfo(
-                                    deviceModel = "AuraCam",
-                                    lensFocalLength = "",
-                                    iso = 0,
-                                    shutterSpeed = "",
-                                    aperture = "",
-                                    exposureBias = "",
-                                    whiteBalance = "",
-                                    format = "video/mp4",
-                                    resolution = "1920 × 1080",
-                                    timestamp = ComputationalPipeline.formatTimestamp(now)
-                                )
-                            )
-                            _recentMedia.value = media
-                            _galleryList.value = listOf(media) + _galleryList.value
-                        }
-                        activeRecording = null
-                        _isRecording.value = false
-                        _recordingDurationSeconds.value = 0
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start recording", e)
-            activeRecording = null
+    private suspend fun stopRecording() {
+        val active = recorder ?: run {
             _isRecording.value = false
+            return
         }
+        recordingTicker?.cancel()
+        recordingTicker = null
+        compositor.setEncoderOutput(null, 0, 0)
+        val result = withContext(Dispatchers.IO) { active.stop() }
+        recorder = null
+        _isRecording.value = false
+        _recordingDurationSeconds.value = 0
+
+        if (result == null) {
+            Log.w(TAG, "Recording produced no output")
+            return
+        }
+        val now = System.currentTimeMillis()
+        val media = CapturedMedia(
+            id = "VID_$now",
+            uri = result.uri.toString(),
+            fileName = result.fileName,
+            timestamp = now,
+            width = result.width,
+            height = result.height,
+            format = CaptureFormat.JPEG,
+            mode = _cameraMode.value,
+            exif = ExifInfo(
+                deviceModel = Build.MANUFACTURER + " " + Build.MODEL,
+                lensFocalLength = "",
+                iso = 0,
+                shutterSpeed = "",
+                aperture = "",
+                exposureBias = "",
+                whiteBalance = "",
+                format = "video/mp4",
+                resolution = "${result.width} × ${result.height}",
+                timestamp = ComputationalPipeline.formatTimestamp(now)
+            )
+        )
+        _recentMedia.value = media
+        _galleryList.value = listOf(media) + _galleryList.value
     }
 
     private fun hasPermission(context: Context, permission: String) =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
+    private fun closeStreams() {
+        rearStream?.close()
+        rearStream = null
+        frontStream?.close()
+        frontStream = null
+        runCatching { stillReader?.close() }
+        stillReader = null
+        runCatching { analysisReader?.close() }
+        analysisReader = null
+    }
+
     override fun release() {
         if (released) return
         released = true
-        try {
-            activeRecording?.stop()
-        } catch (e: Exception) {
-            Log.w(TAG, "Recording already stopped", e)
-        }
-        activeRecording = null
+        recordingTicker?.cancel()
+        recordingTicker = null
+        runCatching { recorder?.stop() }
+        recorder = null
         orientationListener?.disable()
         orientationListener = null
         sensorLeveler.stop()
-        imageAnalysis?.clearAnalyzer()
-        cameraProvider?.unbindAll()
-        boundSignature = null
-        camera = null
-        preview = null
-        imageCapture = null
-        imageAnalysis = null
-        videoCapture = null
-        cameraProvider = null
-        previewView = null
-        lifecycleOwner = null
+        closeStreams()
+        compositor.stop()
+        sessionThread?.quitSafely()
+        sessionThread = null
+        sessionHandler = null
+        cameraThread?.quitSafely()
+        cameraThread = null
+        cameraHandler = null
+        previewSurface = null
+        hardware = null
         context = null
-        cameraExecutor.shutdown()
-        analysisExecutor.shutdown()
+        sessionSignature = null
         super.release()
     }
 
     private val canWriteDng: Boolean
-        get() = rawSupported && DNG_WRITER_IMPLEMENTED
+        get() = activeLens?.rawSupported == true && DNG_WRITER_IMPLEMENTED
 
     private companion object {
         const val BIN_COUNT = 32
         const val DNG_WRITER_IMPLEMENTED = false
         const val HISTOGRAM_INTERVAL_NANOS = 100_000_000L
+        const val TRACKING_INTERVAL_NANOS = 100_000_000L
+        const val TRACKING_DEADZONE = 0.02f
         const val MASK_STEP = 8
-        const val ZEBRA_THRESHOLD = 123
-        const val PEAKING_THRESHOLD = 14
+        const val ZEBRA_THRESHOLD = 246
+        const val PEAKING_THRESHOLD = 28
+        const val CAPTURE_TIMEOUT_MS = 8_000L
+        const val RECORD_BITS_PER_PIXEL = 130L
     }
 }

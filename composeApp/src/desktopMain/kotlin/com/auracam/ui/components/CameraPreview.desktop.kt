@@ -24,19 +24,3 @@ actual fun CameraPreview(
             )
     )
 }
-
-@Composable
-actual fun SecondaryCameraPreview(
-    engine: CameraEngine,
-    modifier: Modifier
-) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(Color(0xFF34495E), Color(0xFF1A1E24))
-                )
-            )
-    )
-}

@@ -1,15 +1,14 @@
-# Progress Tracking - Explorer 3
+# Progress — Explorer 3
 
+Last visited: 2026-09-01T17:18:35Z
+
+## Status
 - [x] Initialized DISPATCH.md and BRIEFING.md
-- [x] Read ORIGINAL_REQUEST.md and mapped R3 & R4 requirements
-- [x] Inspected Pro Controls Sheet (manual camera controls, sliders, indicators)
-- [x] Inspected Histogram pipeline and UI styling
-- [x] Inspected Gallery Viewer (EXIF card, native share, image display)
-- [x] Inspected Gradle build configuration & KMP targets
-- [x] Inspected Desktop tests (`./gradlew :shared:desktopTest`) - Verified PASS
-- [x] Inspected Android build & device deployment status (`adb devices`, `:composeApp:installDebug`, activity launch, screen capture) - Verified PASS
-- [x] Generated `survey_pro_gallery_build.md`
-- [x] Generated `handoff.md` and updated BRIEFING.md
-- [x] Notified parent orchestrator
-
-*Last visited: 2026-08-29T13:43:30Z*
+- [x] Explore codebase structure and file tree
+- [x] Focus 1: Video recording pipeline & Audio recording in AuraCam
+- [x] Focus 2: Live Tone Filters implementation across preview and recording
+- [x] Focus 3: Single Combined Video Recording (Split 50/50 and PiP compositing & encoding)
+- [x] Focus 4: Existing test suites (`./gradlew testDebugUnitTest`) & Connected device deployment (ADB Nothing Phone 2a)
+- [x] Synthesized findings into `survey_recording.md`
+- [x] Written 5-component `handoff.md`
+- [x] Update BRIEFING.md and notify parent agent

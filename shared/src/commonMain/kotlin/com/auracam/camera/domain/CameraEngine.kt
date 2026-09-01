@@ -34,6 +34,11 @@ interface CameraEngine {
     val geotaggingEnabled: StateFlow<Boolean>
     val recentMedia: StateFlow<CapturedMedia?>
     val galleryList: StateFlow<List<CapturedMedia>>
+    val dualVlogLayout: StateFlow<DualVlogLayout>
+    val isDualStreamSwapped: StateFlow<Boolean>
+    val dualVlogPipRect: StateFlow<NormalizedRect>
+    val trackedSubjects: StateFlow<List<TrackedSubject>>
+    val subjectTrackingEnabled: StateFlow<Boolean>
 
     fun setMode(mode: CameraMode)
     fun setLens(lens: LensFacing)
@@ -55,6 +60,10 @@ interface CameraEngine {
     fun toggleUltraHdr(enabled: Boolean)
     fun setGeotaggingEnabled(enabled: Boolean)
     fun setVideoStabilizationEnabled(enabled: Boolean)
+    fun setDualVlogLayout(layout: DualVlogLayout)
+    fun swapDualStreams()
+    fun setDualVlogPipRect(rect: NormalizedRect)
+    fun setSubjectTrackingEnabled(enabled: Boolean)
     suspend fun refreshGallery()
     suspend fun loadExif(media: CapturedMedia): CapturedMedia
     suspend fun deleteMedia(media: CapturedMedia): Boolean
