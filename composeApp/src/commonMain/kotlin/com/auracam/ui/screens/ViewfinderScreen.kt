@@ -163,6 +163,12 @@ fun ViewfinderScreen(
                         }
                 ) {
                     // A. Live Hardware Camera Viewfinder Stream
+                    CameraPreview(
+                        engine = engine,
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // Multi-Stream Dual Vlog / Director's View Overlay
                     if (cameraMode == CameraMode.DUAL_VLOG) {
                         DualVlogOverlay(
                             engine = engine,
@@ -171,11 +177,6 @@ fun ViewfinderScreen(
                                 val nextLens = if (currentLens == LensFacing.FRONT) LensFacing.BACK_WIDE else LensFacing.FRONT
                                 engine.setLens(nextLens)
                             },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        CameraPreview(
-                            engine = engine,
                             modifier = Modifier.fillMaxSize()
                         )
                     }

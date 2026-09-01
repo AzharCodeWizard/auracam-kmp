@@ -52,6 +52,8 @@ actual fun SecondaryCameraPreview(
         PreviewView(context).apply {
             scaleType = PreviewView.ScaleType.FILL_CENTER
             implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+            isClickable = false
+            isFocusable = false
         }
     }
 

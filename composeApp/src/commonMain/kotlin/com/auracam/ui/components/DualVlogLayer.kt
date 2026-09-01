@@ -23,6 +23,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,28 +43,23 @@ fun DualVlogOverlay(
     modifier: Modifier = Modifier
 ) {
     var layout by remember { mutableStateOf(DualVlogLayout.PIP_RECT) }
-    var pipOffset by remember { mutableStateOf(Offset(24f, 24f)) }
+    var pipOffset by remember { mutableStateOf(Offset(24f, 130f)) }
     var swapped by remember { mutableStateOf(false) }
 
     Box(modifier = modifier.fillMaxSize()) {
         if (layout == DualVlogLayout.SPLIT_50_50) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Top Half: Primary Live Stream (Back/Front Camera)
+                // Top Half: Primary Live Stream (Back/Front Camera from ViewfinderScreen underneath)
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                    CameraPreview(
-                        engine = engine,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
                     // Top Section Tag
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .padding(top = 16.dp)
+                            .padding(top = 56.dp)
                             .clip(CircleShape)
                             .background(Color(0x88000000))
                             .border(1.dp, Color(0x33FFFFFF), CircleShape)
@@ -134,6 +130,7 @@ fun DualVlogOverlay(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .background(Color.Black)
                 ) {
                     SecondaryCameraPreview(
                         engine = engine,
@@ -171,20 +168,26 @@ fun DualVlogOverlay(
                     .clip(pipShape)
                     .background(Color.Black)
                     .border(2.5.dp, PixelYellowAccent, pipShape)
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            pipOffset = Offset(
-                                x = (pipOffset.x + dragAmount.x).coerceIn(16f, 750f),
-                                y = (pipOffset.y + dragAmount.y).coerceIn(16f, 1400f)
-                            )
-                        }
-                    }
             ) {
                 // Live Concurrent Secondary Camera Preview
                 SecondaryCameraPreview(
                     engine = engine,
                     modifier = Modifier.fillMaxSize()
+                )
+
+                // Drag gesture transparent overlay on top of PreviewView
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                pipOffset = Offset(
+                                    x = (pipOffset.x + dragAmount.x).coerceIn(16f, 750f),
+                                    y = (pipOffset.y + dragAmount.y).coerceIn(16f, 1400f)
+                                )
+                            }
+                        }
                 )
 
                 // Top Tag on PiP
@@ -232,6 +235,7 @@ fun DualVlogOverlay(
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
+                .zIndex(20f)
                 .padding(16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically

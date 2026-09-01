@@ -380,21 +380,32 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
                 .setAllowedResolutionMode(ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE)
                 .build()
 
-            preview = Preview.Builder()
-                .setTargetRotation(rotation)
-                .setResolutionSelector(resolutionSelector)
-                .build()
-                .also { it.surfaceProvider = pView.surfaceProvider }
+            val isDualVlog = _cameraMode.value == CameraMode.DUAL_VLOG && secondaryPreviewView != null
 
-            imageCapture = ImageCapture.Builder()
-                .setTargetRotation(rotation)
-                .setResolutionSelector(resolutionSelector)
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                .setJpegQuality(100)
-                .setFlashMode(toCameraXFlashMode(_flashMode.value))
-                .build()
+            preview = if (isDualVlog) {
+                Preview.Builder()
+                    .setTargetRotation(rotation)
+                    .build()
+                    .also { it.surfaceProvider = pView.surfaceProvider }
+            } else {
+                Preview.Builder()
+                    .setTargetRotation(rotation)
+                    .setResolutionSelector(resolutionSelector)
+                    .build()
+                    .also { it.surfaceProvider = pView.surfaceProvider }
+            }
 
-            imageAnalysis = if (wantsAnalysis) {
+            imageCapture = if (isDualVlog) null else {
+                ImageCapture.Builder()
+                    .setTargetRotation(rotation)
+                    .setResolutionSelector(resolutionSelector)
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                    .setJpegQuality(100)
+                    .setFlashMode(toCameraXFlashMode(_flashMode.value))
+                    .build()
+            }
+
+            imageAnalysis = if (wantsAnalysis && !isDualVlog) {
                 ImageAnalysis.Builder()
                     .setTargetRotation(rotation)
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -431,7 +442,6 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
             }
 
             // Dual Vlog / Multi-Stream Concurrent Camera Binding
-            val isDualVlog = _cameraMode.value == CameraMode.DUAL_VLOG && secondaryPreviewView != null
             val secondarySelector = if (_currentLens.value == LensFacing.FRONT) {
                 targetLens()?.selector ?: CameraSelector.DEFAULT_BACK_CAMERA
             } else {
@@ -449,6 +459,7 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
                 val canBindConcurrent = runCatching {
                     provider.availableConcurrentCameraInfos.any { it.size >= 2 }
                 }.getOrDefault(false)
+                Log.i(TAG, "Dual Vlog bind attempt: canBindConcurrent=$canBindConcurrent, concurrentGroups=${provider.availableConcurrentCameraInfos.size}")
 
                 if (canBindConcurrent) {
                     try {
