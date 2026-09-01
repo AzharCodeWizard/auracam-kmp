@@ -181,23 +181,25 @@ fun ViewfinderScreen(
                         )
                     }
 
-                    ExposureMaskLayer(
-                        engine = engine,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // C. Framing Grids
-                    FramingGridOverlay(
-                        gridType = if (settings.framingHintsEnabled) gridType else GridType.NONE,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    if (settings.framingHintsEnabled) {
-                        LevelerLayer(
+                    if (cameraMode != CameraMode.DUAL_VLOG) {
+                        ExposureMaskLayer(
                             engine = engine,
-                            onLevelReached = soundAndHaptics::vibrateLevelLock,
-                            modifier = Modifier.align(Alignment.Center)
+                            modifier = Modifier.fillMaxSize()
                         )
+
+                        // C. Framing Grids
+                        FramingGridOverlay(
+                            gridType = if (settings.framingHintsEnabled) gridType else GridType.NONE,
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        if (settings.framingHintsEnabled) {
+                            LevelerLayer(
+                                engine = engine,
+                                onLevelReached = soundAndHaptics::vibrateLevelLock,
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                        }
                     }
 
                     // E. Focus Bracket & Exposure Sliders
