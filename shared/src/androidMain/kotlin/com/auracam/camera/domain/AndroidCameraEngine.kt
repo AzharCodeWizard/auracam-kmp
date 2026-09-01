@@ -60,7 +60,10 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
 
     private var cameraProvider: ProcessCameraProvider? = null
     private var camera: Camera? = null
+    private var secondaryCamera: Camera? = null
     private var preview: Preview? = null
+    private var secondaryPreview: Preview? = null
+    private var secondaryPreviewView: PreviewView? = null
     private var imageCapture: ImageCapture? = null
     private var imageAnalysis: ImageAnalysis? = null
     private var videoCapture: VideoCapture<Recorder>? = null
@@ -137,6 +140,25 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
                 )
             }
         }, ContextCompat.getMainExecutor(appContext))
+    }
+
+    fun bindSecondaryPreview(previewView: PreviewView) {
+        if (released) return
+        this.secondaryPreviewView = previewView
+        if (_cameraMode.value == CameraMode.DUAL_VLOG) {
+            boundSignature = null
+            startCamera()
+        }
+    }
+
+    fun unbindSecondaryPreview() {
+        this.secondaryPreviewView = null
+        this.secondaryPreview = null
+        this.secondaryCamera = null
+        if (_cameraMode.value == CameraMode.DUAL_VLOG) {
+            boundSignature = null
+            startCamera()
+        }
     }
 
     private fun startSensorLeveler(context: Context) {
@@ -283,12 +305,13 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
         if (_currentLens.value == LensFacing.FRONT) frontLens else lensFor(_zoomRatio.value)
 
     private fun useCaseSignature(): String {
-        val cameraId = targetLens()?.cameraId ?: if (_currentLens.value == LensFacing.FRONT) "front" else "back"
+        val facing = _currentLens.value
         val pro = _proSettings.value
+        val isDual = _cameraMode.value == CameraMode.DUAL_VLOG && secondaryPreviewView != null
         val analysis = _cameraMode.value == CameraMode.PRO ||
             pro.focusPeakingEnabled || pro.zebraClippingEnabled
         return "${if (isVideoMode(_cameraMode.value)) "video" else "photo"}|" +
-            "$analysis|$cameraId|${aspectGroup(_aspectRatio.value)}"
+            "$analysis|$facing|${aspectGroup(_aspectRatio.value)}|dual=$isDual"
     }
 
     private fun isVideoMode(mode: CameraMode) =
@@ -405,6 +428,62 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
                 VideoCapture.withOutput(recorder).also { it.targetRotation = rotation }
             } else {
                 null
+            }
+
+            // Dual Vlog / Multi-Stream Concurrent Camera Binding
+            val isDualVlog = _cameraMode.value == CameraMode.DUAL_VLOG && secondaryPreviewView != null
+            val secondarySelector = if (_currentLens.value == LensFacing.FRONT) {
+                targetLens()?.selector ?: CameraSelector.DEFAULT_BACK_CAMERA
+            } else {
+                CameraSelector.DEFAULT_FRONT_CAMERA
+            }
+
+            if (isDualVlog && provider.hasCamera(secondarySelector)) {
+                val secView = secondaryPreviewView!!
+                val secRotation = secView.display?.rotation ?: Surface.ROTATION_0
+                secondaryPreview = Preview.Builder()
+                    .setTargetRotation(secRotation)
+                    .build()
+                    .also { it.surfaceProvider = secView.surfaceProvider }
+
+                val canBindConcurrent = runCatching {
+                    provider.availableConcurrentCameraInfos.any { it.size >= 2 }
+                }.getOrDefault(false)
+
+                if (canBindConcurrent) {
+                    try {
+                        val primaryGroup = UseCaseGroup.Builder()
+                            .addUseCase(preview!!)
+                            .apply { videoCapture?.let { addUseCase(it) } }
+                            .build()
+                        val secondaryGroup = UseCaseGroup.Builder()
+                            .addUseCase(secondaryPreview!!)
+                            .build()
+
+                        val primaryConfig = ConcurrentCamera.SingleCameraConfig(
+                            cameraSelector,
+                            primaryGroup,
+                            owner
+                        )
+                        val secondaryConfig = ConcurrentCamera.SingleCameraConfig(
+                            secondarySelector,
+                            secondaryGroup,
+                            owner
+                        )
+
+                        val concurrentCam = provider.bindToLifecycle(listOf(primaryConfig, secondaryConfig))
+                        camera = concurrentCam.cameras.firstOrNull()
+                        secondaryCamera = concurrentCam.cameras.getOrNull(1)
+                        boundSignature = signature
+                        readManualCapabilities()
+                        applyZoom(_zoomRatio.value)
+                        applyManualControls()
+                        if (_flashMode.value == FlashMode.TORCH) camera?.cameraControl?.enableTorch(true)
+                        return
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Concurrent camera binding failed on hardware, falling back to standard usecases", e)
+                    }
+                }
             }
 
             val useCases = listOfNotNull(preview, imageCapture, imageAnalysis, videoCapture)
@@ -718,21 +797,15 @@ actual class PlatformCameraEngine : BaseCameraEngine(simulateSensors = false) {
 
     override fun setZoom(zoom: Float) {
         super.setZoom(zoom)
-        val desired = targetLens()
-        if (desired != null && desired.cameraId != activeLens?.cameraId) {
-            startCamera()
-        } else {
-            applyZoom(_zoomRatio.value)
-        }
+        applyZoom(zoom)
     }
 
     private fun applyZoom(requested: Float) {
         val control = camera?.cameraControl ?: return
         val zoomState = camera?.cameraInfo?.zoomState?.value
-        val min = zoomState?.minZoomRatio ?: 1.0f
-        val max = zoomState?.maxZoomRatio ?: 1.0f
-        val base = activeLens?.baseZoom?.takeIf { it > 0f } ?: 1.0f
-        control.setZoomRatio((requested / base).coerceIn(min, max))
+        val min = zoomState?.minZoomRatio ?: 0.5f
+        val max = zoomState?.maxZoomRatio ?: 10.0f
+        control.setZoomRatio(requested.coerceIn(min, max))
     }
 
     override fun setPhotoResolution(resolution: PhotoResolution) {

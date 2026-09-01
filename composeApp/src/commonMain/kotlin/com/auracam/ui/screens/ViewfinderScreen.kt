@@ -26,6 +26,7 @@ import com.auracam.ui.util.SoundAndHaptics
 import com.auracam.ui.util.rememberPlatformShare
 import com.auracam.ui.util.rememberSoundAndHaptics
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @Composable
 fun ViewfinderScreen(
@@ -146,7 +147,7 @@ fun ViewfinderScreen(
                                 if (zoom != 1f) {
                                     val currentZ = engine.zoomRatio.value
                                     val newZoom = (currentZ * zoom).coerceIn(0.5f, 10.0f)
-                                    engine.setZoom((newZoom * 10).toInt() / 10f)
+                                    engine.setZoom((newZoom * 100).roundToInt() / 100f)
                                 }
                             }
                         }
@@ -162,73 +163,19 @@ fun ViewfinderScreen(
                         }
                 ) {
                     // A. Live Hardware Camera Viewfinder Stream
-                    CameraPreview(
-                        engine = engine,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // B. Color Profile / LUT Live Tone Overlay
-                    when (colorProfile) {
-                        ColorProfile.HIGH_CONTRAST_MONO -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0x33000000))
-                            )
-                        }
-                        ColorProfile.CINEMATIC_WARM -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0x15FFAA00))
-                            )
-                        }
-                        ColorProfile.VINTAGE_FILM -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0x188D6E63))
-                            )
-                        }
-                        ColorProfile.COOL_BREEZE -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0x180099FF))
-                            )
-                        }
-                        ColorProfile.ASTRO_BOOST -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0x1500AAFF))
-                            )
-                        }
-                        ColorProfile.VIBRANT -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0x10FF5500))
-                            )
-                        }
-                        ColorProfile.CLEAN_DOC -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0x10FFFFFF))
-                            )
-                        }
-                        else -> {}
-                    }
-
-                    // Multi-Stream Dual Vlog / Director's View Overlay
                     if (cameraMode == CameraMode.DUAL_VLOG) {
                         DualVlogOverlay(
+                            engine = engine,
                             isRecording = isRecording,
                             onFlipStream = {
                                 val nextLens = if (currentLens == LensFacing.FRONT) LensFacing.BACK_WIDE else LensFacing.FRONT
                                 engine.setLens(nextLens)
                             },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        CameraPreview(
+                            engine = engine,
                             modifier = Modifier.fillMaxSize()
                         )
                     }

@@ -12,13 +12,16 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,7 +41,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * iPhone-style Continuous Wheel Zoom Dial + Compact Preset Pills
+ * Ultra-fluid iPhone-style Rotary Ticker Zoom Dial + Compact Preset Pills
  */
 @Composable
 fun ZoomSelector(
@@ -50,16 +53,21 @@ fun ZoomSelector(
     var isExpandedDial by remember { mutableStateOf(false) }
     var lastInteractionTime by remember { mutableStateOf(0L) }
 
-    // Auto collapse after 2.5s of no interaction
-    LaunchedEffect(lastInteractionTime) {
+    // Auto collapse after 3.5s of no interaction
+    LaunchedEffect(lastInteractionTime, isExpandedDial) {
         if (isExpandedDial && lastInteractionTime > 0) {
-            delay(2500)
+            delay(3500)
             isExpandedDial = false
         }
     }
 
-    val minZoom = availablePresets.firstOrNull() ?: 1.0f
+    val minZoom = availablePresets.firstOrNull() ?: 0.5f
     val maxZoom = availablePresets.lastOrNull()?.coerceAtLeast(10.0f) ?: 10.0f
+
+    var dragZoomTracker by remember { mutableStateOf(currentZoom) }
+    LaunchedEffect(currentZoom) {
+        dragZoomTracker = currentZoom
+    }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -75,47 +83,85 @@ fun ZoomSelector(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Color(0xEE14171C))
-                    .padding(vertical = 12.dp, horizontal = 16.dp)
+                    .fillMaxWidth(0.94f)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(Color(0xF0161920))
+                    .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(26.dp))
+                    .padding(vertical = 10.dp, horizontal = 14.dp)
             ) {
-                // Large Active Zoom Readout
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(PixelYellowAccent)
-                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                // Top Row: Active Zoom Readout & Close Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val formattedZoom = if (currentZoom < 10f) {
-                        "${(currentZoom * 10).roundToInt() / 10.0}x"
-                    } else {
-                        "${currentZoom.roundToInt()}x"
+                    Spacer(modifier = Modifier.size(28.dp))
+
+                    // Active zoom badge pill
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(PixelYellowAccent)
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                    ) {
+                        val formattedZoom = if (currentZoom < 10f) {
+                            "${(currentZoom * 10).roundToInt() / 10.0}x"
+                        } else {
+                            "${currentZoom.roundToInt()}x"
+                        }
+                        Text(
+                            text = formattedZoom,
+                            color = PixelPitchBlack,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
                     }
-                    Text(
-                        text = formattedZoom,
-                        color = PixelPitchBlack,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
+
+                    // Close dial button
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x33FFFFFF))
+                            .clickable { isExpandedDial = false },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close Dial",
+                            tint = PixelTextWhite,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Continuous Horizontal Ticker Wheel
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp)
+                        .height(48.dp)
                         .pointerInput(Unit) {
-                            detectHorizontalDragGestures { change, dragAmount ->
-                                change.consume()
-                                lastInteractionTime = System.currentTimeMillis()
-                                val zoomSensitivity = 0.04f * (currentZoom.coerceAtLeast(1f) / 2f)
-                                val delta = -dragAmount * zoomSensitivity
-                                val newZoom = (currentZoom + delta).coerceIn(minZoom, maxZoom)
-                                onZoomSelected((newZoom * 10).roundToInt() / 10f)
-                            }
+                            detectHorizontalDragGestures(
+                                onDragStart = {
+                                    lastInteractionTime = System.currentTimeMillis()
+                                    dragZoomTracker = currentZoom
+                                },
+                                onHorizontalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    lastInteractionTime = System.currentTimeMillis()
+                                    // Natural intuitive direction: drag right increases zoom, drag left decreases
+                                    val sensitivity = 0.010f * dragZoomTracker.coerceAtLeast(0.8f)
+                                    val delta = dragAmount * sensitivity
+                                    val newZoom = (dragZoomTracker + delta).coerceIn(minZoom, maxZoom)
+                                    dragZoomTracker = newZoom
+                                    val roundedZoom = (newZoom * 10f).roundToInt() / 10f
+                                    if (roundedZoom != currentZoom) {
+                                        onZoomSelected(roundedZoom)
+                                    }
+                                }
+                            )
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -123,38 +169,85 @@ fun ZoomSelector(
                         val w = size.width
                         val h = size.height
                         val midX = w / 2f
-                        val totalTicks = 40
-                        val tickSpacing = w / totalTicks
+                        val tickSpacing = 16.dp.toPx()
 
                         // Center yellow indicator needle
                         drawLine(
                             color = PixelYellowAccent,
                             start = Offset(midX, 2f),
                             end = Offset(midX, h - 2f),
-                            strokeWidth = 3.dp.toPx(),
+                            strokeWidth = 3.5.dp.toPx(),
                             cap = StrokeCap.Round
                         )
 
-                        // Relative offset based on zoom value
-                        val baseOffset = (currentZoom - minZoom) / (maxZoom - minZoom) * (w * 1.5f)
+                        // Relative offset based on zoom value (1 tick = 0.1x zoom)
+                        val totalTicksFromMin = (currentZoom - minZoom) * 10f
+                        val pixelOffset = totalTicksFromMin * tickSpacing
 
-                        for (i in -25..25) {
-                            val tickX = midX + i * tickSpacing - (baseOffset % tickSpacing)
+                        val minVisibleIndex = ((pixelOffset - midX) / tickSpacing).toInt() - 2
+                        val maxVisibleIndex = ((pixelOffset + midX) / tickSpacing).toInt() + 2
+
+                        for (index in minVisibleIndex..maxVisibleIndex) {
+                            val tickX = midX + (index * tickSpacing) - pixelOffset
                             if (tickX in 0f..w) {
-                                val distFromCenter = abs(tickX - midX) / (w / 2f)
-                                val alpha = (1f - distFromCenter * 0.8f).coerceIn(0.1f, 0.9f)
-                                val isMajor = i % 5 == 0
-                                val tickHeight = if (isMajor) h * 0.6f else h * 0.35f
-                                val topY = (h - tickHeight) / 2f
+                                val tickZoom = minZoom + (index / 10f)
+                                if (tickZoom in minZoom..maxZoom) {
+                                    val distFromCenter = abs(tickX - midX) / (w / 2f)
+                                    val alpha = (1f - distFromCenter * 0.75f).coerceIn(0.15f, 0.95f)
 
-                                drawLine(
-                                    color = if (isMajor) Color.White.copy(alpha = alpha) else Color(0xFF888888).copy(alpha = alpha),
-                                    start = Offset(tickX, topY),
-                                    end = Offset(tickX, topY + tickHeight),
-                                    strokeWidth = if (isMajor) 2.dp.toPx() else 1.2.dp.toPx(),
-                                    cap = StrokeCap.Round
-                                )
+                                    val isMajor = (index % 10 == 0) || abs(tickZoom - 0.5f) < 0.05f
+                                    val isMedium = index % 5 == 0 && !isMajor
+                                    val tickHeight = when {
+                                        isMajor -> h * 0.65f
+                                        isMedium -> h * 0.45f
+                                        else -> h * 0.28f
+                                    }
+                                    val topY = (h - tickHeight) / 2f
+
+                                    drawLine(
+                                        color = if (isMajor) Color.White.copy(alpha = alpha) else Color(0xFFAAAAAA).copy(alpha = alpha),
+                                        start = Offset(tickX, topY),
+                                        end = Offset(tickX, topY + tickHeight),
+                                        strokeWidth = if (isMajor) 2.2.dp.toPx() else 1.2.dp.toPx(),
+                                        cap = StrokeCap.Round
+                                    )
+                                }
                             }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Quick Preset Shortcut Row inside the dial
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    availablePresets.forEach { preset ->
+                        val isSelected = abs(currentZoom - preset) < 0.15f
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(if (isSelected) PixelYellowAccent else Color(0x33FFFFFF))
+                                .clickable {
+                                    onZoomSelected(preset)
+                                    lastInteractionTime = System.currentTimeMillis()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = when {
+                                    preset == 0.5f -> ".5"
+                                    preset == 1.0f -> "1x"
+                                    preset == preset.toInt().toFloat() -> "${preset.toInt()}x"
+                                    else -> "${preset}x"
+                                },
+                                color = if (isSelected) PixelPitchBlack else PixelTextWhite,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
@@ -169,18 +262,22 @@ fun ZoomSelector(
                     backgroundColor = PixelGlassScrim,
                     borderColor = PixelGlassBorder
                 )
-                .pointerInput(Unit) {
-                    detectDragGestures(
+                .pointerInput(currentZoom) {
+                    detectHorizontalDragGestures(
                         onDragStart = {
                             isExpandedDial = true
                             lastInteractionTime = System.currentTimeMillis()
                         },
-                        onDrag = { change, dragAmount ->
+                        onHorizontalDrag = { change, dragAmount ->
                             change.consume()
                             lastInteractionTime = System.currentTimeMillis()
-                            val delta = -dragAmount.x * 0.05f
+                            val sensitivity = 0.015f * currentZoom.coerceAtLeast(0.8f)
+                            val delta = dragAmount * sensitivity
                             val newZoom = (currentZoom + delta).coerceIn(minZoom, maxZoom)
-                            onZoomSelected((newZoom * 10).roundToInt() / 10f)
+                            val roundedZoom = (newZoom * 10f).roundToInt() / 10f
+                            if (roundedZoom != currentZoom) {
+                                onZoomSelected(roundedZoom)
+                            }
                         }
                     )
                 }

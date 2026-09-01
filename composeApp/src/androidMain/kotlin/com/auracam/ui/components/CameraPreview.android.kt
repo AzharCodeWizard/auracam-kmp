@@ -39,3 +39,35 @@ actual fun CameraPreview(
         modifier = modifier.fillMaxSize()
     )
 }
+
+@Composable
+actual fun SecondaryCameraPreview(
+    engine: CameraEngine,
+    modifier: Modifier
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    val secondaryPreviewView = remember {
+        PreviewView(context).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, engine) {
+        if (engine is PlatformCameraEngine) {
+            engine.bindSecondaryPreview(secondaryPreviewView)
+        }
+        onDispose {
+            if (engine is PlatformCameraEngine) {
+                engine.unbindSecondaryPreview()
+            }
+        }
+    }
+
+    AndroidView(
+        factory = { secondaryPreviewView },
+        modifier = modifier.fillMaxSize()
+    )
+}
